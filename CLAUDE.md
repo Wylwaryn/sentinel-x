@@ -20,7 +20,7 @@ Navigateurs (dashboard) ──────────────────�
                                                             ▼
 PC hôte Windows 11 (RTX 5050, CUDA)        VM Linux Mint 22.3 « sentinel-server » (VirtualBox)
  ├─ host/vision : YOLOv8n + ByteTrack       ├─ Mosquitto (MQTTS)              [en service]
- │   + zones + fusion PIR                   ├─ API d'ingestion (127.0.0.1)    [à faire]
+ │   + zones + fusion PIR                   ├─ API d'ingestion :8443 (127.0.0.1) [en service]
  └─ host/ids : IA réseau (capture Npcap)    ├─ API dashboard via Caddy :443   [collègues]
      connexions SORTANTES uniquement ─────► └─ PostgreSQL 17 (aucun port)     [en service]
 ```
@@ -40,7 +40,7 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 | 443 | Caddy vers l'API dashboard | Wi-Fi de la table |
 | 8883 | Mosquitto MQTTS | Wi-Fi de la table |
 | 2222 vers 22 | SSH de la VM | **127.0.0.1 uniquement** (le PC hôte) |
-| à définir | API d'ingestion | **127.0.0.1 uniquement** |
+| 8443 | API d'ingestion (HTTPS, jeton Bearer) | **127.0.0.1 uniquement** |
 | 5432 | PostgreSQL | **jamais** (réseau Docker interne) |
 
 ## Base de données (`server/db/`)
@@ -78,27 +78,74 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 
 ## VM : où en est la session VM (mis à jour par elle)
 
-**En service dans la VM** : PostgreSQL, Mosquitto MQTTS (8883, 33 tests OK).
-**En cours** : API d'ingestion.
+**En service dans la VM** :
+- PostgreSQL ;
+- Mosquitto MQTTS sur 8883 (33 tests OK) ;
+- **API d'ingestion sur 8443** (`server/ingest/`, 59 tests OK sur une pile isolée).
 
-### À faire côté Windows (session locale ou utilisateur)
+**Prochaine étape VM** : rien de bloquant. En attente du firmware et du branchement de la vision. Le dashboard (Caddy :443) appartient aux collègues.
 
-- [ ] **Redirection NAT VirtualBox pour MQTTS** (sans elle, ni l'ESP ni la vision ne joignent le broker) :
-  `VBoxManage controlvm "sentinel-server" natpf1 "mqtts,tcp,,8883,,8883"`.
-  Le port écoute sur toutes les interfaces de Windows, puisque l'ESP passe par le Wi-Fi : le pare-feu Windows ne doit autoriser 8883 que depuis le sous-réseau du point d'accès.
-- [ ] **Vérifier l'IP du point d'accès Windows.** Le certificat contient `192.168.137.1`. Si l'IP est différente, le dire à la session VM, qui régénérera le certificat serveur (la CA ne change pas, donc le firmware reste valide).
-- [ ] **Copier `ca.crt`** (public) depuis la VM : `scp sentinel-vm:/opt/sentinel-x/server/certs/ca.crt host/vision/certs/`, et l'intégrer au firmware.
-- [ ] **Mots de passe `vision` et `esp`** : exception assumée à la règle « secrets jamais copiés sur Windows », puisque ces deux comptes tournent hors de la VM.
-  Les récupérer **un par un** (`ssh sentinel-vm sudo grep MQTT_VISION_PASSWORD /opt/sentinel-x/server/.env`), puis les ranger dans les variables d'environnement Windows `SENTINEL_MQTT_USER=vision` et `SENTINEL_MQTT_PASS`, ou dans le firmware. Ne jamais copier le `.env` entier ni le committer.
-- [ ] **Vision** : `client_id` uniques. Si la vision ouvre deux connexions (PIR et vidéo), leur donner deux identifiants différents, sinon chacune déconnecte l'autre.
-- [ ] **Firmware ESP8266** : NTP avant la connexion TLS, `client_id` = numéro de série, publication sur `sentinel/telemetry`, abonnement à `sentinel/cmd/<numero_serie>`.
+### API d'ingestion : ce qu'il faut savoir pour s'y brancher
+
+- URL : `https://127.0.0.1:8443/api/v1/alerts` (Windows, via la redirection NAT). Certificat signé par notre CA (`host/certs/ca.crt`), SAN `127.0.0.1`.
+- **Un jeton Bearer par client**, et chaque jeton est limité à ses origines :
+
+  | Jeton (dans le `.env` de la VM) | Origines autorisées | Variable côté Windows |
+  |---|---|---|
+  | `INGEST_TOKEN_VISION` | `VISION_IA`, `FUSION`, `PIR` | `SENTINEL_VISION_TOKEN` |
+  | `INGEST_TOKEN_IDS` | `RESEAU_IA` | à choisir côté IDS |
+  | `INGEST_TOKEN_CAPTEURS` | `CAPTEURS_IA` | réservé (IA capteurs) |
+
+  Une autre origine renvoie 403. À récupérer un par un : `ssh sentinel-vm sudo grep INGEST_TOKEN_VISION /opt/sentinel-x/server/.env`.
+- **Le contrat de la section Windows est implémenté tel quel**, exemple IDS compris. Les anciens noms de la vision (`source`/`type`/`level`/`serie`/`score`/`pir_confirmed`/`detail`) restent acceptés. Les alias `info`/`warning`/`critical`, `presence`/`loitering`/`fast_approach`/`intrusion`/`pir_blind_spot` sont traduits.
+- **`numero_serie`** :
+  - obligatoire pour toute origine sauf `RESEAU_IA`, à moins que `INGEST_DEFAULT_SERIE` soit défini dans le `.env` ;
+  - un numéro inconnu renvoie 422 ;
+  - pour `RESEAU_IA`, il peut être `null`.
+- **`action`** est journalisé ; `details`, `ts` et `track_id` ne sont pas stockés.
+- **Horodatage** : posé par la base à la réception, en UTC. Le `ts` du client est ignoré.
+- **`snapshot_jpeg_b64`** :
+  - accepté seulement pour `VISION_IA`/`FUSION` ;
+  - JPEG de 1 Mo maximum, vérifié par ses octets magiques ;
+  - stocké dans le volume Docker `captures`, avec `chemin_capture = captures/<uuid>.jpg`. L'API dashboard pourra monter ce volume en lecture seule.
+- **Réponses** : 201 `{"id_alerte": n}`, 401 jeton absent ou faux, 403 origine interdite, 411/413 corps sans taille ou de plus de 2 Mo, 422 validation (la valeur reçue n'est jamais renvoyée).
+- Pas de `/docs` ni d'`/openapi.json`, pas d'en-tête `Server`. Le jeton est vérifié **avant** la lecture du corps.
+- **`DISPOSITIF_HORS_LIGNE`** (origine `SYSTEME`, niveau `CRITIQUE`) : levée après 30 s sans mesure, une seule fois par coupure. C'est une bonne démo : débrancher l'ESP devant le jury.
+
+### Format de télémétrie attendu du firmware (`sentinel/telemetry`, JSON)
+
+```json
+{"serie": "ESP-01", "temperature_c": 21.5, "humidite_pct": 48.2, "gaz_brut": 312, "pir": true}
+```
+- `serie` doit exister dans `dispositif.numero_serie`, sinon le message est ignoré.
+- Mettre `null` si le DHT22 est en défaut (ArduinoJson le fait pour NaN).
+- Bornes : température de -40 à 80, humidité de 0 à 100, gaz de 0 à 1023. Une valeur hors bornes fait ignorer tout le message.
+- `pir` est aussi lu par la vision pour la fusion.
+- Envoyer au moins toutes les 10 s, sinon l'ESP passe hors ligne au bout de 30 s. Envoyer immédiatement à chaque changement du PIR.
+
+### À faire côté Windows / équipe
+
+- [ ] **Redirections NAT VirtualBox** (dans l'interface, la VM est sous le compte Windows `marci`) :
+  - `mqtts` : TCP, IP hôte **vide** (Wi-Fi), port hôte 8883 vers le port invité 8883. Pare-feu Windows : 8883 autorisé seulement depuis le sous-réseau du point d'accès.
+  - `ingest` : TCP, IP hôte **`127.0.0.1`**, port hôte 8443 vers le port invité 8443. **Jamais exposé au Wi-Fi.**
+- [ ] **IP du point d'accès** : le certificat Mosquitto contient `192.168.137.1`. Si l'IP est différente, prévenir la session VM.
+- [ ] **Créer le site et l'ESP en base.** Le rôle `ingest` n'en a pas le droit, c'est voulu. Avec le compte admin, dans la VM :
+  `INSERT INTO site (nom) VALUES ('EPSI'); INSERT INTO dispositif (id_site, nom, numero_serie) VALUES (1, 'Boîtier 1', '<serie>');`
+  Puis mettre `INGEST_DEFAULT_SERIE=<serie>` dans le `.env` si la vision n'envoie pas `numero_serie`.
+- [ ] **Jetons** : `SENTINEL_VISION_TOKEN` pour la vision, et le jeton de l'IDS, récupérés un par un comme le mot de passe MQTT.
+- [ ] **Firmware ESP8266** : NTP avant la connexion TLS, `client_id` = numéro de série, format de télémétrie ci-dessus, abonnement à `sentinel/cmd/<numero_serie>`. Mot de passe `MQTT_ESP_PASSWORD`, à récupérer seul.
+- [x] `ca.crt` dans `host/certs/`, mot de passe `vision`, une seule connexion MQTT pour la vision (fait par la session Windows).
 
 ### À savoir
 
-- **Docker contourne UFW** pour les ports publiés (8883, plus tard 443) : la règle UFW de jeudi ne les filtrera pas. Le filtrage réel se fait au pare-feu Windows et dans la redirection VirtualBox.
+- **Docker contourne UFW** pour les ports publiés (8883, 8443, plus tard 443) : la règle UFW de jeudi ne les filtrera pas. Le filtrage réel se fait au pare-feu Windows et dans les redirections VirtualBox.
+- Chaque conteneur ne reçoit que ses propres secrets (`environment:` explicite, pas d'`env_file`). Postgres ne voit ni les mots de passe MQTT ni les jetons.
 - ACL MQTT : le dashboard publie sur `sentinel/cmd/+` (plus strict que `cmd/#`). Un abonnement à `#` ne donne accès qu'aux topics autorisés pour le compte.
+- Mosquitto et l'API d'ingestion n'ont pas de NAT sortant : ils reçoivent des connexions mais ne peuvent pas joindre Internet.
 - Mosquitto signale des droits trop ouverts sur le fichier `acl` : c'est sans conséquence en 2.0 et le fichier ne contient aucun secret.
-- Le broker n'a pas de NAT sortant : il reçoit des connexions mais ne peut pas joindre Internet.
+- Tests :
+  - `sudo mosquitto/tests/test_mqtt.sh` (production, aucune écriture en base) ;
+  - `sudo ingest/tests/test_ingest.sh` (crée puis détruit une pile `sentinel-test`, la production n'est pas touchée).
 
 ## Windows : où en est la session Windows (mis à jour par elle)
 
