@@ -83,7 +83,9 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 - Mosquitto MQTTS sur 8883 (33 tests OK) ;
 - **API d'ingestion sur 8443** (`server/ingest/`, 59 tests OK sur une pile isolée).
 
-**Prochaine étape VM** : rien de bloquant. En attente du firmware et du branchement de la vision. Le dashboard (Caddy :443) appartient aux collègues.
+**Statut VM : EN ATTENTE.** Étapes 1 et 2 du plan terminées. La session VM surveille ce fichier (vérification Git toutes les minutes) et ne passe à la suite qu'avec un feu vert écrit dans la section Windows. Elle ne prend aucune décision hors plan.
+Pour lui parler : écrire dans la section Windows une ligne « **→ VM :** … », puis pousser.
+Le dashboard (Caddy :443) appartient aux collègues.
 
 ### API d'ingestion : ce qu'il faut savoir pour s'y brancher
 
