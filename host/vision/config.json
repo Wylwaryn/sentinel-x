@@ -1,0 +1,67 @@
+{
+  "camera": {
+    "index": 1,
+    "width": 640,
+    "height": 480,
+    "fps": 30,
+    "auto_exposure": false,
+    "exposure": -6,
+    "auto_white_balance": false,
+    "white_balance": 4500,
+    "gain": null
+  },
+  "model": {
+    "weights": "yolov8n.pt",
+    "imgsz": 640,
+    "conf": 0.45,
+    "tracker": "bytetrack.yaml",
+    "gpu_memory_fraction": 0.5
+  },
+  "motion": {
+    "history": 300,
+    "var_threshold": 25,
+    "min_area_ratio": 0.005,
+    "idle_after_s": 3.0,
+    "idle_interval_s": 0.5
+  },
+  "zones": [
+    {
+      "name": "perimetre",
+      "kind": "perimeter",
+      "polygon": [[0.02, 0.25], [0.98, 0.25], [0.98, 1.0], [0.02, 1.0]]
+    },
+    {
+      "name": "zone_interdite",
+      "kind": "restricted",
+      "polygon": [[0.35, 0.55], [0.65, 0.55], [0.65, 1.0], [0.35, 1.0]]
+    }
+  ],
+  "behaviour": {
+    "loiter_s": 10.0,
+    "fast_speed": 0.6,
+    "speed_window_s": 0.5,
+    "track_timeout_s": 2.0
+  },
+  "fusion": {
+    "pir_window_s": 3.0,
+    "blind_spot_delay_s": 2.0,
+    "cooldown_s": 10.0
+  },
+  "pir": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 8883,
+    "topic": "sentinel/telemetry",
+    "field": "pir",
+    "ca_cert": "certs/ca.crt",
+    "username_env": "SENTINEL_MQTT_USER",
+    "password_env": "SENTINEL_MQTT_PASS"
+  },
+  "api": {
+    "enabled": false,
+    "url": "https://127.0.0.1/api/v1/alerts",
+    "token_env": "SENTINEL_VISION_TOKEN",
+    "ca_cert": "certs/ca.crt",
+    "timeout_s": 2.0
+  }
+}

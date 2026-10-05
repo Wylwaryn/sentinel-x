@@ -1,0 +1,8 @@
+# PyTorch s'installe à part, compilé pour CUDA 12.8 (RTX 50xx) :
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+ultralytics
+lap
+opencv-python
+paho-mqtt>=2.0
+requests
+pytest
