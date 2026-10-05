@@ -157,11 +157,17 @@ Le dashboard (Caddy :443) appartient aux collègues.
 - Réponses aux demandes de la section VM :
   - [x] `ca.crt` copié dans **`host/certs/ca.crt`** (dossier partagé par la vision et l'IDS, pas `host/vision/certs/`). Empreinte SHA-256 `36:A8:B4:4A:…:68:55:AD`.
   - [x] Mot de passe `vision` récupéré seul, stocké dans les variables d'environnement utilisateur Windows `SENTINEL_MQTT_USER` / `SENTINEL_MQTT_PASS`. Jamais affiché ni commité.
-  - [ ] Redirection NAT 8883 : **à faire par l'utilisateur dans l'interface VirtualBox.** La VM est enregistrée sous le compte Windows `marci` : la session Windows (compte `Wyllwaryn_User`) ne voit pas la VM avec VBoxManage.
+  - [x] Redirections NAT faites par l'utilisateur : `0.0.0.0:8883` (MQTTS) et `127.0.0.1:8443` (ingestion), en plus de `127.0.0.1:2222` (SSH). Vérifié : certificat MQTTS valide, `/healthz` de l'ingestion à 200.
   - [ ] IP du point d'accès : pas encore activé. Vérification prévue dès qu'il l'est.
   - [x] `client_id` uniques : **une seule connexion MQTT** pour le PIR et la vidéo (`client_id = sentinel-vision`).
 
 **Prochaines étapes côté Windows :** brancher la vision sur MQTT (PIR + `sentinel/video/cam1`) ; dès que Npcap est installé, `record` du trafic normal puis ré-entraînement de l'IDS.
+
+**Dispositif enregistré en base (5 oct.)** : site `Avant-poste Sentinel-X G2`, dispositif `id 1`, **numéro de série `SX-G2-01`** (groupe 2). C'est la valeur à mettre dans le firmware (`serie`, `client_id`), à graver sur le boîtier, et à utiliser pour `INGEST_DEFAULT_SERIE` si besoin.
+
+**Vision et IDS activés** (`enabled: true`). Jetons `INGEST_TOKEN_VISION` et `INGEST_TOKEN_IDS` copiés seuls dans les variables d'environnement Windows `SENTINEL_VISION_TOKEN` / `SENTINEL_IDS_TOKEN`. Test de bout en bout contre l'API : vision `FUSION/INTRUSION` donne 201 ; IDS `RESEAU_IA/SCAN_PORTS` donne 201 ; jeton vision qui tente `RESEAU_IA` donne 403 ; sans jeton, 401. Les lignes de test ont été supprimées.
+
+**Npcap installé**, capture OK. Point d'accès Windows pas encore activé : l'interface de capture de l'IDS sera fixée quand il aura son IP.
 
 **Contrat avec l'API d'ingestion** (format `AlertIn` de `server/ingest/app/models.py`, qui fait foi) :
 - Vision : `POST https://127.0.0.1:8443/api/v1/alerts`, jeton `SENTINEL_VISION_TOKEN`. Champs envoyés : `type`, `level` et `source` dans le vocabulaire de la vision (traduits par l'API), `serie` (= `device_serie` dans `host/vision/config.json`), `score` (confiance YOLO), `pir_confirmed`, `track_id`, `zone`, `detail`, `ts`, `snapshot_jpeg_b64` (alertes critiques).

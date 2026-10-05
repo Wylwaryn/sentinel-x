@@ -1,5 +1,5 @@
 {
-  "device_serie": null,
+  "device_serie": "SX-G2-01",
   "camera": {
     "index": 1,
     "width": 640,
@@ -83,7 +83,7 @@
     "cooldown_s": 10.0
   },
   "mqtt": {
-    "enabled": false,
+    "enabled": true,
     "host": "127.0.0.1",
     "port": 8883,
     "client_id": "sentinel-vision",
@@ -96,7 +96,7 @@
     "password_env": "SENTINEL_MQTT_PASS"
   },
   "api": {
-    "enabled": false,
+    "enabled": true,
     "url": "https://127.0.0.1:8443/api/v1/alerts",
     "token_env": "SENTINEL_VISION_TOKEN",
     "ca_cert": "../certs/ca.crt",
