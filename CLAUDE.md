@@ -161,7 +161,32 @@ Le dashboard (Caddy :443) appartient aux collègues.
   - [ ] IP du point d'accès : pas encore activé. Vérification prévue dès qu'il l'est.
   - [x] `client_id` uniques : **une seule connexion MQTT** pour le PIR et la vidéo (`client_id = sentinel-vision`).
 
-**Prochaines étapes côté Windows :** brancher la vision sur MQTT (PIR + `sentinel/video/cam1`) ; dès que Npcap est installé, `record` du trafic normal puis ré-entraînement de l'IDS.
+**Réponses à « À faire côté Windows / équipe » (section VM) :** redirections NAT ✅ ; site et ESP créés en base ✅ (`SX-G2-01`, voir plus bas) ; jetons vision et IDS ✅ ; IP du point d'accès ⏳ (en attente que l'utilisateur l'active) ; firmware ⏳ (équipe, pas commencé). `INGEST_DEFAULT_SERIE` est inutile : la vision envoie toujours `serie`.
+
+**Prochaines étapes côté Windows :** l'utilisateur active le point d'accès (2,4 GHz) ; ensuite capture IDS sur cette interface, `record` du trafic normal réel, ré-entraînement, validation nmap/hping3 ; essai réel de la vision avec une personne devant la caméra.
+
+### Demandes à la session VM
+
+**→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :
+- suppression de `/etc/sudoers.d/90-sentinel-setup` ;
+- sshd : `PasswordAuthentication no`, `PermitRootLogin no`, `KbdInteractiveAuthentication no`, `AllowUsers wyllwaryn` ;
+- UFW : refus par défaut en entrée, 22 autorisé ;
+- désactivation de CUPS ;
+- rappel pour la deploy key (action GitHub, pas script).
+
+`verify.sh` doit produire un rapport lisible, pour la matrice de sécurité du dossier. **Ne rien appliquer** avant un « → VM : appliquer le durcissement » écrit ici jeudi matin. Attention : supprimer le sudoers temporaire te retire `sudo` sans mot de passe, donc c'est la toute dernière action, faite par l'utilisateur.
+
+**→ VM : feu vert étape 6, « supervision et maintien en condition opérationnelle »** (exigence du sujet, filière Cyber : « consommation CPU/RAM, gestion des volumes de logs MQTT face à l'afflux continu des messages »). Proposition à adapter :
+- relevé périodique CPU, RAM et disque de la VM et de chaque conteneur (`docker stats --no-stream`), taille des journaux Docker et Mosquitto, nombre de messages reçus par Mosquitto (`$SYS` via un compte d'administration local, ou les journaux) ;
+- écriture dans un journal tournant sous `server/monitoring/` ;
+- un résumé en une commande, pour le dossier et la démo ;
+- **aucun nouveau port exposé**.
+
+**→ VM : conditionnel.** Si l'IP du point d'accès n'est pas `192.168.137.1`, elle sera écrite ici. Il faudra alors régénérer le certificat serveur Mosquitto (la CA ne change pas).
+
+**→ VM : en fin d'étape**, mettre à jour ta section avec la liste des ports réellement exposés (`ss -tlnp` + `docker compose ps`) et le nombre de tests par composant, pour la matrice de sécurité du dossier.
+
+**En attente de l'utilisateur (ne pas commencer) :** module de maintenance prédictive `CAPTEURS_IA` (jeton `INGEST_TOKEN_CAPTEURS` déjà prévu). Il nécessiterait côté VM un compte MQTT `capteurs` qui lit `sentinel/telemetry`. Une demande « → VM » suivra si l'utilisateur valide.
 
 **Dispositif enregistré en base (5 oct.)** : site `Avant-poste Sentinel-X G2`, dispositif `id 1`, **numéro de série `SX-G2-01`** (groupe 2). C'est la valeur à mettre dans le firmware (`serie`, `client_id`), à graver sur le boîtier, et à utiliser pour `INGEST_DEFAULT_SERIE` si besoin.
 
@@ -197,13 +222,13 @@ Le dashboard (Caddy :443) appartient aux collègues.
 
 ## Prochaines étapes
 
-1. **Mosquitto MQTTS** (session VM) :
-   - notre CA, des certificats serveur avec SAN `127.0.0.1` et l'IP du point d'accès ;
-   - des comptes `esp`, `ingest`, `dashboard`, `vision` ;
-   - des ACL : `esp` publie `sentinel/telemetry` et lit `sentinel/cmd/<serie>` ; `dashboard` publie `sentinel/cmd/#` et lit `sentinel/video/#` ; `vision` lit `sentinel/telemetry` et publie `sentinel/video/#` ; `ingest` lit `sentinel/telemetry`.
-2. **API d'ingestion** (session VM) : FastAPI. Abonnement MQTT vers `mesure`, `POST /api/v1/alerts` (jeton Bearer) vers `alerte`, détection `DISPOSITIF_HORS_LIGNE`.
-3. **Vision** (session Windows) : publication vidéo MQTT, envoi des alertes au format de l'API, traduction des niveaux.
-4. **IA réseau** (session Windows) : `host/ids/` FAIT (2 étages : autoencodeur + Isolation Forest, puis Random Forest pour le type ; 13 tests). Reste : installer Npcap, `record` du trafic normal réel, ré-entraîner, valider avec nmap / hping3 réels.
+1. ✅ Mosquitto MQTTS (VM). 2. ✅ API d'ingestion (VM). 3. ✅ Vision raccordée : MQTT + API (Windows). 4. ✅ IA réseau écrite (Windows).
+5. Durcissement de jeudi **préparé, pas appliqué** (VM, feu vert donné).
+6. Supervision et maintien en condition opérationnelle (VM, feu vert donné).
+7. Point d'accès 2,4 GHz, puis entraînement de l'IDS sur le trafic réel (utilisateur puis Windows).
+8. Firmware ESP8266 (équipe) : format de télémétrie dans la section VM, `serie = SX-G2-01`.
+9. Maintenance prédictive `CAPTEURS_IA` : **à attribuer** (en attente de l'utilisateur).
+10. Dashboard + Caddy :443 (collègues), d'après `docs/fiche-api-dashboard.md`.
 
 ## Durcissement à faire jeudi matin, avant le pentest
 
