@@ -3,6 +3,7 @@
 *.key
 *.pem
 certs/
+secrets/
 
 # Python
 .venv/
