@@ -80,14 +80,56 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 
 **En service dans la VM** :
 - PostgreSQL ;
-- Mosquitto MQTTS sur 8883 (40 tests OK, 5 comptes) ;
+- Mosquitto MQTTS sur 8883 (45 tests OK, 6 comptes) ;
 - **API d'ingestion sur 8443** (`server/ingest/`, 59 tests OK sur une pile isolée).
+- Supervision `sentinel-monitor` (timer chaque minute).
 
-**Statut VM : EN COURS.** Étapes 1, 2 et 7 terminées ; étapes 5 (durcissement préparé) et 6 (supervision) en cours.
+**Statut VM : EN ATTENTE.** Étapes 1, 2, 5 (préparée), 6 et 7 terminées. Prochaine action VM : « → VM : appliquer le durcissement » jeudi matin, ou l'IP du point d'accès si elle n'est pas `192.168.137.1`.
 
-**→ Windows : compte capteurs prêt.** Compte MQTT `capteurs`, lecture seule de `sentinel/telemetry`, `client_id` libre (`sentinel-capteurs` conseillé). Mot de passe `MQTT_CAPTEURS_PASSWORD` à récupérer seul : `ssh sentinel-vm sudo grep MQTT_CAPTEURS_PASSWORD /opt/sentinel-x/server/.env`. Tests MQTT : 40 OK (dont 7 pour `capteurs`).
+**→ Windows : compte capteurs prêt.** Compte MQTT `capteurs`, lecture seule de `sentinel/telemetry`, `client_id` libre (`sentinel-capteurs` conseillé). Mot de passe `MQTT_CAPTEURS_PASSWORD` à récupérer seul : `ssh sentinel-vm sudo grep MQTT_CAPTEURS_PASSWORD /opt/sentinel-x/server/.env`.
 
-Étapes 1 et 2 du plan terminées. La session VM surveille ce fichier (vérification Git toutes les minutes) et ne passe à la suite qu'avec un feu vert écrit dans la section Windows. Elle ne prend aucune décision hors plan.
+**→ Windows : étape 5 prête (rien n'est appliqué).**
+- `sudo hardening/apply.sh` : simulation par défaut. `--apply` applique SSH (clé uniquement, pas de root, `AllowUsers wyllwaryn`), UFW (refus en entrée, 22 autorisé) et CUPS masqué. `--apply --remove-sudoers` supprime en plus le sudo sans mot de passe, tout à la fin, par l'utilisateur.
+- Garde-fous :
+  - arrêt s'il n'y a aucune clé SSH autorisée ;
+  - `sshd -t` avant le rechargement, avec retour arrière en cas d'erreur ;
+  - le sudoers n'est supprimé que si `wyllwaryn` est dans le groupe `sudo` et a un mot de passe.
+  **L'utilisateur doit connaître le mot de passe de `wyllwaryn` avant jeudi.**
+- `sudo hardening/verify.sh` (`--markdown` pour le dossier) : aujourd'hui **34 OK, 7 À FAIRE (exactement ceux d'`apply.sh`), 0 KO**, plus 4 contrôles manuels (redirections VirtualBox, presse-papiers et glisser-déposer, deploy key, pare-feu Windows).
+- Écart avec la liste du bas de ce fichier : UFW n'autorise que 22, comme demandé dans la section Windows. Ouvrir 443 et 8883 dans UFW ne servirait à rien, puisque Docker publie ces ports en contournant UFW.
+
+**→ Windows : étape 6 prête.** Supervision installée et active (`server/monitoring/`) :
+- un relevé chaque minute (timer systemd), avec CPU, RAM et disque de la VM, puis CPU, RAM, PIDs, réseau, redémarrages et taille des journaux par conteneur ;
+- Mosquitto via `$SYS` : clients, messages/min, octets ;
+- PostgreSQL : taille, mesures et alertes, croissance par jour ;
+- journal `/var/log/sentinel-x/metrics.jsonl`, rotation quotidienne par logrotate (7 jours, 10 Mo maximum) ;
+- journaux des conteneurs plafonnés par Docker (10 Mo x 3), et Mosquitto ne journalise que les connexions : pas de croissance avec l'afflux de messages.
+- **Résumé en une commande** : `sudo sentinel-monitor report` (`--hours 24`, `--markdown`). Code retour 1 si un seuil est dépassé (CPU/RAM 85 %, disque 80 %, conteneur arrêté ou redémarré, journal > 25 Mo, aucun client MQTT).
+- Nouveau compte MQTT `monitor` : lecture de `$SYS/broker/#` uniquement, depuis le réseau Docker interne. Aucun port exposé.
+- Le collecteur est copié dans `/usr/local/lib/sentinel-x/` (root) : root n'exécute jamais un fichier du dépôt.
+
+### Matrice : ports réellement exposés (relevé du 5 oct., `ss -tlnp` + `docker compose ps`)
+
+| Port VM | Service | Écoute | Joignable depuis | Protection |
+|---|---|---|---|---|
+| 22 | sshd | 0.0.0.0 | Windows seulement (NAT `127.0.0.1:2222`) | clé uniquement après jeudi, UFW |
+| 8883 | Mosquitto (docker-proxy) | 0.0.0.0 | Wi-Fi (NAT `0.0.0.0:8883`) | TLS 1.2+, 6 comptes, ACL en liste blanche |
+| 8443 | API d'ingestion (docker-proxy) | 0.0.0.0 | Windows seulement (NAT `127.0.0.1:8443`) | TLS 1.2+, jeton Bearer par client |
+| 5432 | PostgreSQL | réseau Docker interne | personne (aucun port publié) | rôles séparés, scram-sha-256 |
+| 631 | CUPS | 127.0.0.1 | local | **supprimé jeudi** (`apply.sh`) |
+| 53 | systemd-resolved | 127.0.0.53/54 | local | — |
+| éphémères | serveur VS Code Remote | 127.0.0.1 | local | disparaît quand VS Code se déconnecte |
+
+### Tests côté VM
+
+| Composant | Script | Résultat |
+|---|---|---|
+| Droits PostgreSQL | `db/tests/test_droits.sh` (base de test) | 39 OK |
+| Mosquitto (TLS, authentification, ACL des 6 comptes, limites) | `mosquitto/tests/test_mqtt.sh` | 45 OK |
+| API d'ingestion (HTTPS, jetons, contrat, validation, injection, captures, télémétrie, hors ligne) | `ingest/tests/test_ingest.sh` (pile isolée) | 59 OK |
+| Conformité de la VM | `hardening/verify.sh` | 34 OK, 7 à faire jeudi, 0 KO |
+
+La session VM surveille ce fichier (vérification Git toutes les minutes) et ne passe à la suite qu'avec un feu vert écrit dans la section Windows. Elle ne prend aucune décision hors plan.
 Pour lui parler : écrire dans la section Windows une ligne « **→ VM :** … », puis pousser.
 Le dashboard (Caddy :443) appartient aux collègues.
 
