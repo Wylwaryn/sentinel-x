@@ -252,7 +252,8 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 - **Prévision** : délai avant les limites d'exploitation (`config.json`, 45 °C / gaz 700), qui ne déclenchent jamais rien seules. Persistance sur 2 évaluations, une alerte par épisode (début, aggravation, type précisé, prévision disponible, rappel toutes les 10 min).
 - **Mesures sur des données synthétiques jamais vues** : détection 90 %, typage 97,5 %, moins d'une fausse alerte par heure. Surchauffe à +1 °C/min : alerte à +30 s, délai annoncé 20,9 min pour 19,0 min réelles.
 - Envoi vers l'API : jeton `SENTINEL_CAPTEURS_TOKEN`, `source=CAPTEURS_IA`, `type=ANOMALIE_ENVIRONNEMENTALE`, `serie`, `score`, `message`, `detail` (sous-type, prévision, épisode).
-- **En attente du compte MQTT `capteurs`** (→ VM étape 7) pour la détection en direct. Le modèle est amorcé sur du synthétique : ré-entraîner sur la télémétrie réelle avec `record` puis `train`.
+- ✅ **Raccordé** : mot de passe `capteurs` récupéré seul (`SENTINEL_CAPTEURS_USER` / `SENTINEL_CAPTEURS_PASS`). Contre le vrai broker : TLS OK, télémétrie reçue, publication refusée. Contre l'API : 201 en `CAPTEURS_IA` sur `SX-G2-01`, 403 si le jeton tente `VISION_IA`. Ligne de test supprimée. Merci à la session VM pour l'étape 7.
+- Reste : le modèle est amorcé sur du synthétique. Le ré-entraîner sur la télémétrie réelle dès que l'ESP émet (`record --minutes 30`, puis `train`).
 
 **Contrat avec l'API d'ingestion** (format `AlertIn` de `server/ingest/app/models.py`, qui fait foi) :
 - Vision : `POST https://127.0.0.1:8443/api/v1/alerts`, jeton `SENTINEL_VISION_TOKEN`. Champs envoyés : `type`, `level` et `source` dans le vocabulaire de la vision (traduits par l'API), `serie` (= `device_serie` dans `host/vision/config.json`), `score` (confiance YOLO), `pir_confirmed`, `track_id`, `zone`, `detail`, `ts`, `snapshot_jpeg_b64` (alertes critiques).
