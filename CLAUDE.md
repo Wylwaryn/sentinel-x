@@ -19,7 +19,7 @@ ESP8266 (DHT22, MQ-2, PIR, OLED, buzzer, LED) ──MQTTS:8883──┐
 Navigateurs (dashboard) ───────────────────HTTPS:443────────┤  redirections NAT VirtualBox
                                                             ▼
 PC hôte Windows 11 (RTX 5050, CUDA)        VM Linux Mint 22.3 « sentinel-server » (VirtualBox)
- ├─ host/vision : YOLOv8n + ByteTrack       ├─ Mosquitto (MQTTS)              [à faire]
+ ├─ host/vision : YOLOv8n + ByteTrack       ├─ Mosquitto (MQTTS)              [en service]
  │   + zones + fusion PIR                   ├─ API d'ingestion (127.0.0.1)    [à faire]
  └─ host/ids : IA réseau (capture Npcap)    ├─ API dashboard via Caddy :443   [collègues]
      connexions SORTANTES uniquement ─────► └─ PostgreSQL 17 (aucun port)     [en service]
@@ -67,10 +67,20 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 - Docker durci (`server/docker/daemon.json`) : userns-remap, no-new-privileges, rotation des journaux. Les conteneurs utilisent `cap_drop: [ALL]`, puis le minimum nécessaire.
 - Avec userns-remap, les fichiers montés dans les conteneurs doivent être lisibles par « others » (755/644).
 
+## PKI et MQTT (`server/pki/`, `server/mosquitto/`)
+
+- CA maison EC P-256 : `sudo pki/pki.sh ca` (déjà fait), puis `sudo pki/pki.sh server <service> <uid> <SAN,...>` pour chaque service TLS (Caddy le moment venu).
+  La clé de la CA reste dans `server/certs/ca/` (root, 700). **`certs/ca.crt` est public** : c'est lui qu'on copie sur Windows et dans le firmware.
+- Certificat Mosquitto : SAN `mosquitto`, `sentinel-server`, `localhost`, `127.0.0.1`, `192.168.137.1` (point d'accès Windows par défaut). Si l'IP change, regénérer le certificat serveur : la CA ne change pas.
+- Comptes : `sudo mosquitto/gen-passwd.sh` (mots de passe `MQTT_*_PASSWORD` dans `.env`). ACL dans `mosquitto/config/acl` (liste blanche). Depuis le réseau Docker, l'hôte est `mosquitto:8883`.
+- Tests : `sudo mosquitto/tests/test_mqtt.sh` (33 tests : TLS, authentification, matrice ACL, limites).
+- ESP8266 : BearSSL, TLS 1.2, `ca.crt` en trust anchor, **heure NTP obligatoire** avant la connexion (validité du certificat), `client_id` = numéro de série.
+
 ## Pièges déjà rencontrés
 
 - `docker compose exec` et `ssh` lisent l'entrée standard : dans un script heredoc, ajouter `</dev/null`, sinon ils avalent la suite du script.
 - PowerShell 5.1 abîme les guillemets passés à `ssh` : piloter la VM depuis Git Bash (outil Bash).
+- Docker publie ses ports avant UFW : une règle UFW ne bloque PAS 8883 ni 443. Le filtrage se fait au niveau de la redirection NAT VirtualBox et du pare-feu Windows.
 - L'image postgres fait confiance aux connexions locales par défaut. D'où `POSTGRES_INITDB_ARGS=--auth-local=scram-sha-256 --auth-host=scram-sha-256`.
 - La RTX 5050 (Blackwell) exige PyTorch `cu128` ou plus. Webcam USB = index 1 (l'index 0 est la caméra intégrée HP).
 
