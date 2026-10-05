@@ -1,0 +1,14 @@
+# Secrets : jamais dans Git
+.env
+*.key
+*.pem
+certs/
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+
+# Modèles téléchargés
+*.pt
+*.onnx

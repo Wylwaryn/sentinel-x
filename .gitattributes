@@ -1,0 +1,3 @@
+# Scripts exécutés dans des conteneurs Linux : fins de ligne LF obligatoires
+*.sh text eol=lf
+*.sql text eol=lf
