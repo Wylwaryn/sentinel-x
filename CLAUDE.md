@@ -1,0 +1,107 @@
+# Sentinel-X : contexte projet pour Claude
+
+Workshop EPSI M1 « Mission Sentinel-X », sprint du lundi 5 au vendredi 9 octobre 2026.
+Équipe de 6, tous de la filière IA : il faut couvrir aussi DEV, INFRA et CYBER. **Réponds en français.**
+Privilégie Python partout pour que toute l'équipe puisse contribuer. Seul le firmware ESP8266 est en C++ (imposé par le sujet).
+
+## Calendrier et livrables
+
+- Mercredi : intégration de bout en bout ; l'après-midi, tournage de la vidéo sur fond vert.
+- **Jeudi matin : gel du code.** Jeudi après-midi : pentest croisé, les autres groupes attaquent notre serveur.
+- **Jeudi soir** : dépôt de `Workshop2026-M1-G<n>-{Dossier.pdf, Pres.pptx, VidDrop.mp4, Code.zip}`.
+- Vendredi : soutenance de 10 min devant le jury. La démo live compte pour 5 pts sur 20.
+- Règle éliminatoire : toutes les briques doivent être interconnectées.
+
+## Architecture (option B : PC apprenant)
+
+```
+ESP8266 (DHT22, MQ-2, PIR, OLED, buzzer, LED) ──MQTTS:8883──┐
+Navigateurs (dashboard) ───────────────────HTTPS:443────────┤  redirections NAT VirtualBox
+                                                            ▼
+PC hôte Windows 11 (RTX 5050, CUDA)        VM Linux Mint 22.3 « sentinel-server » (VirtualBox)
+ ├─ host/vision : YOLOv8n + ByteTrack       ├─ Mosquitto (MQTTS)              [à faire]
+ │   + zones + fusion PIR                   ├─ API d'ingestion (127.0.0.1)    [à faire]
+ └─ host/ids : IA réseau (capture Npcap)    ├─ API dashboard via Caddy :443   [collègues]
+     connexions SORTANTES uniquement ─────► └─ PostgreSQL 17 (aucun port)     [en service]
+```
+
+Décisions prises (ne pas revenir dessus sans l'utilisateur) :
+- **La vision tourne sur Windows** : le GPU n'est pas accessible depuis la VM. Elle n'ouvre aucun port et ne fait que des connexions sortantes vers la VM (API en HTTPS, MQTTS).
+- **La fusion PIR + caméra se fait côté vision** : elle s'abonne à `sentinel/telemetry` en MQTTS.
+- **IA réseau sur Windows** : la capture se fait sur l'interface du point d'accès Wi-Fi, parce que le NAT de VirtualBox masque les vraies IP sources.
+- **Deux API séparées** : ingestion (écriture, à nous) et dashboard (lecture, collègues). Elles sont sur des réseaux Docker distincts et ne peuvent pas se joindre.
+- **Flux webcam vers le dashboard** : la vision publie des JPEG sur MQTT `sentinel/video/cam1`.
+- **Schéma BDD** : il appartient à l'équipe. On propose des changements, on ne les impose pas. Une ligne de `dispositif` = un ESP8266.
+
+## Ports exposés (cible)
+
+| Port | Service | Joignable depuis |
+|---|---|---|
+| 443 | Caddy vers l'API dashboard | Wi-Fi de la table |
+| 8883 | Mosquitto MQTTS | Wi-Fi de la table |
+| 2222 vers 22 | SSH de la VM | **127.0.0.1 uniquement** (le PC hôte) |
+| à définir | API d'ingestion | **127.0.0.1 uniquement** |
+| 5432 | PostgreSQL | **jamais** (réseau Docker interne) |
+
+## Base de données (`server/db/`)
+
+- `init/01-schema.sql` : 7 tables + vues `v_alerte_supervision` (sans `RESEAU_IA`) et `v_dispositif_etat`. LISTEN/NOTIFY sur `sentinel_mesure` et `sentinel_alerte`. UTC forcé.
+- `init/02-roles.sh` crée deux rôles :
+  - `sentinel_ingest` : INSERT mesure/alerte, SELECT mesure/dispositif/site/image_reference, **aucun accès à `utilisateur`** ;
+  - `sentinel_dashboard` : lecture via les vues, UPDATE limité aux colonnes de résolution.
+- `tests/test_droits.sh` : 39 tests (tous OK dans la VM). **Ils insèrent des données factices** : à lancer uniquement sur une base de test, puis `down -v`.
+- Catalogue des alertes (origine → types) :
+  - `VISION_IA`/`FUSION` → `PRESENCE`, `RODEUR`, `INTRUSION`, `APPROCHE_RAPIDE`
+  - `PIR` → `ANGLE_MORT`
+  - `CAPTEURS_IA` → `ANOMALIE_ENVIRONNEMENTALE`
+  - `SYSTEME` → `DISPOSITIF_HORS_LIGNE`
+  - `RESEAU_IA` → `SCAN_PORTS`, `DENI_DE_SERVICE`, `FORCE_BRUTE`, `TRAFIC_ANORMAL` (dispositif facultatif)
+- Niveaux : `INFORMATION`, `AVERTISSEMENT`, `CRITIQUE`. Côté vision : `info`/`warning`/`critical`, à traduire dans l'API d'ingestion.
+- Les dates et heures sont dans deux colonnes séparées (`date_xxx` + `heure_xxx`), en UTC. Horodatage posé par l'API à la réception.
+
+## La VM
+
+- Accès depuis Windows : `ssh sentinel-vm`. Clé `~/.ssh/sentinel_vm`, port 2222 lié à 127.0.0.1, utilisateur `wyllwaryn`.
+- Projet : `/opt/sentinel-x` (clone Git). La stack se lance depuis `/opt/sentinel-x/server` avec `sudo docker compose up -d`.
+- Secrets : `/opt/sentinel-x/server/.env` (root, 600). Générés dans la VM, **jamais commités, jamais copiés sur Windows**.
+- Docker durci (`server/docker/daemon.json`) : userns-remap, no-new-privileges, rotation des journaux. Les conteneurs utilisent `cap_drop: [ALL]`, puis le minimum nécessaire.
+- Avec userns-remap, les fichiers montés dans les conteneurs doivent être lisibles par « others » (755/644).
+
+## Pièges déjà rencontrés
+
+- `docker compose exec` et `ssh` lisent l'entrée standard : dans un script heredoc, ajouter `</dev/null`, sinon ils avalent la suite du script.
+- PowerShell 5.1 abîme les guillemets passés à `ssh` : piloter la VM depuis Git Bash (outil Bash).
+- L'image postgres fait confiance aux connexions locales par défaut. D'où `POSTGRES_INITDB_ARGS=--auth-local=scram-sha-256 --auth-host=scram-sha-256`.
+- La RTX 5050 (Blackwell) exige PyTorch `cu128` ou plus. Webcam USB = index 1 (l'index 0 est la caméra intégrée HP).
+
+## Répartition entre sessions Claude (pour éviter les conflits Git)
+
+- **Session Windows** : `host/` (vision, IA réseau), `docs/`, coordination.
+- **Session VM** : `server/` (Mosquitto, API d'ingestion, compose, Caddy).
+- Toujours faire `git pull --rebase` avant de commencer et `git push` dès qu'une brique fonctionne.
+
+## Conventions
+
+- Commits sémantiques en français : `feat(scope): …`, `fix:`, `test:`, `docs:`, `chore:`. La grille d'évaluation note la régularité des commits.
+- Pas de secret dans le code : variables d'environnement + `.env.example`.
+- Requêtes SQL toujours paramétrées. On sera attaqués jeudi.
+
+## Prochaines étapes
+
+1. **Mosquitto MQTTS** (session VM) :
+   - notre CA, des certificats serveur avec SAN `127.0.0.1` et l'IP du point d'accès ;
+   - des comptes `esp`, `ingest`, `dashboard`, `vision` ;
+   - des ACL : `esp` publie `sentinel/telemetry` et lit `sentinel/cmd/<serie>` ; `dashboard` publie `sentinel/cmd/#` et lit `sentinel/video/#` ; `vision` lit `sentinel/telemetry` et publie `sentinel/video/#` ; `ingest` lit `sentinel/telemetry`.
+2. **API d'ingestion** (session VM) : FastAPI. Abonnement MQTT vers `mesure`, `POST /api/v1/alerts` (jeton Bearer) vers `alerte`, détection `DISPOSITIF_HORS_LIGNE`.
+3. **Vision** (session Windows) : publication vidéo MQTT, envoi des alertes au format de l'API, traduction des niveaux.
+4. **IA réseau** (session Windows) : capture Npcap, caractéristiques calculées par fenêtre, autoencodeur + Isolation Forest, réponse en mode alerte ou blocage avec liste blanche.
+
+## Durcissement à faire jeudi matin, avant le pentest
+
+- [ ] Supprimer `/etc/sudoers.d/90-sentinel-setup` (sudo sans mot de passe, temporaire)
+- [ ] Deploy key GitHub de la VM : la révoquer ou la passer en lecture seule
+- [ ] SSH : `PasswordAuthentication no`, `PermitRootLogin no`
+- [ ] UFW : n'autoriser que 22, 443 et 8883
+- [ ] Désactiver CUPS (port 631)
+- [ ] VirtualBox : couper le presse-papiers et le glisser-déposer
+- [ ] Pare-feu Windows : tout refuser en entrée, sauf les redirections vers la VM
