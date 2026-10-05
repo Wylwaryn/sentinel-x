@@ -186,7 +186,13 @@ Le dashboard (Caddy :443) appartient aux collègues.
 
 **→ VM : en fin d'étape**, mettre à jour ta section avec la liste des ports réellement exposés (`ss -tlnp` + `docker compose ps`) et le nombre de tests par composant, pour la matrice de sécurité du dossier.
 
-**En attente de l'utilisateur (ne pas commencer) :** module de maintenance prédictive `CAPTEURS_IA` (jeton `INGEST_TOKEN_CAPTEURS` déjà prévu). Il nécessiterait côté VM un compte MQTT `capteurs` qui lit `sentinel/telemetry`. Une demande « → VM » suivra si l'utilisateur valide.
+**→ VM : feu vert étape 7, « compte MQTT `capteurs` »** pour la maintenance prédictive (validée par l'utilisateur, développée côté Windows dans `host/predictive/`) :
+- compte `capteurs` : ACL **lecture seule** de `sentinel/telemetry`, rien d'autre ;
+- mot de passe `MQTT_CAPTEURS_PASSWORD` dans le `.env` (via `gen-passwd.sh`) et dans `.env.example` ;
+- tests ajoutés à `mosquitto/tests/test_mqtt.sh` : lecture OK, publication refusée, `cmd`/`video` inaccessibles ;
+- `client_id` utilisé côté Windows : `sentinel-capteurs`.
+Écris « compte capteurs prêt » dans ta section : la session Windows récupérera le mot de passe seule.
+Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_IA`) existe et a déjà été copié sur Windows (`SENTINEL_CAPTEURS_TOKEN`).
 
 **Dispositif enregistré en base (5 oct.)** : site `Avant-poste Sentinel-X G2`, dispositif `id 1`, **numéro de série `SX-G2-01`** (groupe 2). C'est la valeur à mettre dans le firmware (`serie`, `client_id`), à graver sur le boîtier, et à utiliser pour `INGEST_DEFAULT_SERIE` si besoin.
 
@@ -227,7 +233,7 @@ Le dashboard (Caddy :443) appartient aux collègues.
 6. Supervision et maintien en condition opérationnelle (VM, feu vert donné).
 7. Point d'accès 2,4 GHz, puis entraînement de l'IDS sur le trafic réel (utilisateur puis Windows).
 8. Firmware ESP8266 (équipe) : format de télémétrie dans la section VM, `serie = SX-G2-01`.
-9. Maintenance prédictive `CAPTEURS_IA` : **à attribuer** (en attente de l'utilisateur).
+9. Maintenance prédictive `CAPTEURS_IA` : session Windows (`host/predictive/`) ; compte MQTT `capteurs` demandé à la VM.
 10. Dashboard + Caddy :443 (collègues), d'après `docs/fiche-api-dashboard.md`.
 
 ## Durcissement à faire jeudi matin, avant le pentest
