@@ -4,6 +4,7 @@
 # Réseaux :
 #   net_ingest     (interne) API d'ingestion <-> PostgreSQL / Mosquitto
 #   net_dashboard  (interne) API dashboard   <-> PostgreSQL / Mosquitto
+#   net_mqtt_edge  publication du port 8883 (ESP8266, vision Windows), sans NAT sortant
 # Les deux API ne partagent aucun réseau : elles ne peuvent pas se joindre.
 # PostgreSQL ne publie AUCUN port : invisible depuis l'hôte et le Wi-Fi.
 
@@ -35,6 +36,33 @@ services:
       timeout: 5s
       retries: 5
 
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    restart: unless-stopped
+    # Directement sous l'uid mosquitto : pas de bascule root -> utilisateur,
+    # donc aucune capacité Linux nécessaire.
+    user: "1883:1883"
+    entrypoint: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
+    command: []
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:ro
+      - ./certs/mosquitto:/mosquitto/certs:ro
+      - ./secrets/mosquitto:/mosquitto/secrets:ro
+    ports:
+      # Redirection NAT VirtualBox 8883 -> 10.0.2.15:8883.
+      # Attention : Docker publie ses ports AVANT UFW (chaîne DOCKER).
+      - "8883:8883"
+    networks:
+      - net_ingest
+      - net_dashboard
+      - net_mqtt_edge
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    pids_limit: 100
+    mem_limit: 256m
+
 volumes:
   pgdata:
 
@@ -43,3 +71,8 @@ networks:
     internal: true
   net_dashboard:
     internal: true
+  # Ne peut pas être "internal" (sinon pas de port publié). On coupe le NAT sortant :
+  # le broker reçoit des connexions mais ne peut pas joindre Internet.
+  net_mqtt_edge:
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"

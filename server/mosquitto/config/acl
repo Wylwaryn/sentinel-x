@@ -1,0 +1,23 @@
+# ACL Mosquitto Sentinel-X : liste blanche.
+# Tout ce qui n'est pas listé est refusé, y compris $SYS/# et les jokers plus larges
+# (un abonnement à sentinel/# est refusé pour tous les comptes).
+# read = s'abonner/recevoir, write = publier.
+
+# ESP8266 : publie sa télémétrie, reçoit ses commandes.
+user esp
+topic write sentinel/telemetry
+topic read sentinel/cmd/+
+
+# API d'ingestion : lit la télémétrie pour l'écrire en base.
+user ingest
+topic read sentinel/telemetry
+
+# API dashboard : envoie les commandes actionneurs, relaie le flux webcam.
+user dashboard
+topic write sentinel/cmd/+
+topic read sentinel/video/#
+
+# Vision (PC Windows) : fusion PIR et publication du flux annoté.
+user vision
+topic read sentinel/telemetry
+topic write sentinel/video/#
