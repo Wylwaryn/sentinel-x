@@ -1,0 +1,8 @@
+# Versions figées (résolues le 2026-10-05 sur python:3.13-slim)
+fastapi==0.142.2
+uvicorn==0.54.0
+psycopg[binary]==3.3.6
+psycopg-pool==3.3.3
+aiomqtt==2.5.1
+paho-mqtt==2.1.0
+pydantic==2.13.5
