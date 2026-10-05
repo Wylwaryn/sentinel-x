@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.."
 [ -f .env ] || { echo ".env introuvable (copier .env.example)." >&2; exit 1; }
 
 IMAGE=eclipse-mosquitto:2.0
-USERS=(esp ingest dashboard vision)
+USERS=(esp ingest dashboard vision capteurs)
 OUT=secrets/mosquitto/passwd
 
 base=$(awk -F: '$1=="dockremap"{print $2}' /etc/subuid)

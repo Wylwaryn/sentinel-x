@@ -42,7 +42,7 @@ profile() {  # nom user mdp [options supplémentaires]
 }
 envpass() { grep -E "^MQTT_${1^^}_PASSWORD=" .env | tail -n1 | cut -d= -f2-; }
 
-for u in esp ingest dashboard vision; do profile "$u" "$u" "$(envpass "$u")"; done
+for u in esp ingest dashboard vision capteurs; do profile "$u" "$u" "$(envpass "$u")"; done
 profile anon "" ""
 profile badpw esp "mauvais-mot-de-passe"
 
@@ -107,6 +107,14 @@ check "$(flow esp       sentinel/video/cam1  dashboard sentinel/video/cam1)"  bl
 check "$(flow vision    sentinel/video/cam1  ingest    sentinel/video/cam1)"  bloque "ingest ne lit pas la vidéo"
 check "$(flow vision    sentinel/video/cam1  vision    sentinel/video/cam1)"  bloque "vision ne relit pas la vidéo"
 check "$(flow dashboard sentinel/cmd/ESP-01  dashboard sentinel/cmd/ESP-01)"  bloque "dashboard ne relit pas les commandes"
+# Compte capteurs (maintenance prédictive) : lecture seule de la télémétrie.
+check "$(flow esp       sentinel/telemetry   capteurs  sentinel/telemetry)"   recu   "esp -> telemetry, lu par capteurs"
+check "$(flow capteurs  sentinel/telemetry   ingest    sentinel/telemetry)"   bloque "capteurs ne publie pas telemetry"
+check "$(flow capteurs  sentinel/cmd/ESP-01  esp       sentinel/cmd/ESP-01)"  bloque "capteurs ne commande pas l'ESP"
+check "$(flow capteurs  sentinel/video/cam1  dashboard sentinel/video/cam1)"  bloque "capteurs ne publie pas de vidéo"
+check "$(flow dashboard sentinel/cmd/ESP-01  capteurs  sentinel/cmd/ESP-01)"  bloque "capteurs ne lit pas les commandes"
+check "$(flow vision    sentinel/video/cam1  capteurs  sentinel/video/cam1)"  bloque "capteurs ne lit pas la vidéo"
+check "$(flow vision    sentinel/video/cam1  capteurs  '#')"                  bloque "capteurs abonné à # ne voit pas la vidéo"
 # Jokers : Mosquitto filtre chaque message livré selon l'ACL de lecture,
 # un abonnement à # ne donne donc accès qu'aux topics déjà autorisés.
 check "$(flow esp       sentinel/telemetry   dashboard '#')"                  bloque "dashboard abonné à # ne voit pas telemetry"

@@ -21,3 +21,7 @@ topic read sentinel/video/#
 user vision
 topic read sentinel/telemetry
 topic write sentinel/video/#
+
+# Maintenance prédictive (PC Windows, host/predictive) : lecture seule de la télémétrie.
+user capteurs
+topic read sentinel/telemetry

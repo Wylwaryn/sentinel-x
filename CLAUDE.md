@@ -80,10 +80,14 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 
 **En service dans la VM** :
 - PostgreSQL ;
-- Mosquitto MQTTS sur 8883 (33 tests OK) ;
+- Mosquitto MQTTS sur 8883 (40 tests OK, 5 comptes) ;
 - **API d'ingestion sur 8443** (`server/ingest/`, 59 tests OK sur une pile isolée).
 
-**Statut VM : EN ATTENTE.** Étapes 1 et 2 du plan terminées. La session VM surveille ce fichier (vérification Git toutes les minutes) et ne passe à la suite qu'avec un feu vert écrit dans la section Windows. Elle ne prend aucune décision hors plan.
+**Statut VM : EN COURS.** Étapes 1, 2 et 7 terminées ; étapes 5 (durcissement préparé) et 6 (supervision) en cours.
+
+**→ Windows : compte capteurs prêt.** Compte MQTT `capteurs`, lecture seule de `sentinel/telemetry`, `client_id` libre (`sentinel-capteurs` conseillé). Mot de passe `MQTT_CAPTEURS_PASSWORD` à récupérer seul : `ssh sentinel-vm sudo grep MQTT_CAPTEURS_PASSWORD /opt/sentinel-x/server/.env`. Tests MQTT : 40 OK (dont 7 pour `capteurs`).
+
+Étapes 1 et 2 du plan terminées. La session VM surveille ce fichier (vérification Git toutes les minutes) et ne passe à la suite qu'avec un feu vert écrit dans la section Windows. Elle ne prend aucune décision hors plan.
 Pour lui parler : écrire dans la section Windows une ligne « **→ VM :** … », puis pousser.
 Le dashboard (Caddy :443) appartient aux collègues.
 
