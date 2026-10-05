@@ -1,0 +1,14 @@
+# Pile de TEST isolée (base jetable, aucun port publié), utilisée par ingest/tests/test_ingest.sh :
+#   sudo docker compose -p sentinel-test -f docker-compose.yml -f docker-compose.test.yml up -d --build
+#   ...
+#   sudo docker compose -p sentinel-test -f docker-compose.yml -f docker-compose.test.yml down -v
+services:
+  mosquitto:
+    ports: !reset []
+  ingest:
+    ports: !reset []
+    environment:
+      INGEST_DEFAULT_SERIE: TEST-ESP-01
+      OFFLINE_AFTER_S: 10
+      WATCHDOG_INTERVAL_S: 2
+      TELEMETRY_MIN_INTERVAL_S: 0
