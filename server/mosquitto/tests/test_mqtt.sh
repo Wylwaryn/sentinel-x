@@ -42,7 +42,7 @@ profile() {  # nom user mdp [options supplémentaires]
 }
 envpass() { grep -E "^MQTT_${1^^}_PASSWORD=" .env | tail -n1 | cut -d= -f2-; }
 
-for u in esp ingest dashboard vision capteurs; do profile "$u" "$u" "$(envpass "$u")"; done
+for u in esp ingest dashboard vision capteurs monitor; do profile "$u" "$u" "$(envpass "$u")"; done
 profile anon "" ""
 profile badpw esp "mauvais-mot-de-passe"
 
@@ -123,6 +123,13 @@ check "$(flow dashboard sentinel/cmd/ESP-01  vision    '#')"                  bl
 check "$(flow esp       sentinel/telemetry   vision    '#')"                  recu   "vision abonné à # reçoit telemetry (autorisé)"
 sys=$(docker exec "$C" env XDG_CONFIG_HOME=/tmp/cfg/dashboard mosquitto_sub -t '$SYS/#' -C 1 -W 3 2>/dev/null)
 [ -z "$sys" ] && ok "\$SYS/# illisible" || ko "\$SYS/# lisible"
+# Compte monitor (supervision locale) : $SYS/broker uniquement.
+sys=$(docker exec "$C" env XDG_CONFIG_HOME=/tmp/cfg/monitor mosquitto_sub -t '$SYS/broker/messages/received' -C 1 -W 3 2>/dev/null)
+[[ $sys =~ ^[0-9]+$ ]] && ok "monitor lit les compteurs \$SYS/broker ($sys messages reçus)" || ko "monitor ne lit pas \$SYS/broker"
+check "$(flow esp       sentinel/telemetry   monitor   sentinel/telemetry)"   bloque "monitor ne lit pas telemetry"
+check "$(flow vision    sentinel/video/cam1  monitor   '#')"                  bloque "monitor abonné à # ne voit pas la vidéo"
+check "$(flow monitor   sentinel/telemetry   ingest    sentinel/telemetry)"   bloque "monitor ne publie pas telemetry"
+check "$(flow monitor   sentinel/cmd/ESP-01  esp       sentinel/cmd/ESP-01)"  bloque "monitor ne commande pas l'ESP"
 
 echo "== Limites =="
 out=$(mktemp)

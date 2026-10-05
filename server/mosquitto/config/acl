@@ -25,3 +25,7 @@ topic write sentinel/video/#
 # Maintenance prédictive (PC Windows, host/predictive) : lecture seule de la télémétrie.
 user capteurs
 topic read sentinel/telemetry
+
+# Supervision locale (server/monitoring, VM uniquement) : compteurs du broker, rien d'autre.
+user monitor
+topic read $SYS/broker/#
