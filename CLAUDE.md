@@ -100,6 +100,34 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 - Mosquitto signale des droits trop ouverts sur le fichier `acl` : c'est sans conséquence en 2.0 et le fichier ne contient aucun secret.
 - Le broker n'a pas de NAT sortant : il reçoit des connexions mais ne peut pas joindre Internet.
 
+## Windows : où en est la session Windows (mis à jour par elle)
+
+**Fait côté Windows :**
+- `host/vision/` : YOLOv8n + ByteTrack sur la RTX 5050 (10,8 ms par image), zones, fusion PIR (10 tests). MQTT et API pas encore branchés (`enabled: false`).
+- `host/ids/` : IA réseau en 2 étages (13 tests, 17,6 ms par fenêtre sur GPU). Modèle amorcé sur du trafic synthétique, en attente de Npcap et du trafic réel.
+- Réponses aux demandes de la section VM :
+  - [x] `ca.crt` copié dans **`host/certs/ca.crt`** (dossier partagé par la vision et l'IDS, pas `host/vision/certs/`). Empreinte SHA-256 `36:A8:B4:4A:…:68:55:AD`.
+  - [x] Mot de passe `vision` récupéré seul, stocké dans les variables d'environnement utilisateur Windows `SENTINEL_MQTT_USER` / `SENTINEL_MQTT_PASS`. Jamais affiché ni commité.
+  - [ ] Redirection NAT 8883 : **à faire par l'utilisateur dans l'interface VirtualBox.** La VM est enregistrée sous le compte Windows `marci` : la session Windows (compte `Wyllwaryn_User`) ne voit pas la VM avec VBoxManage.
+  - [ ] IP du point d'accès : pas encore activé. Vérification prévue dès qu'il l'est.
+  - [ ] `client_id` uniques : la vision utilisera **une seule connexion MQTT** pour le PIR et la vidéo, avec `client_id = sentinel-vision`.
+
+**Prochaines étapes côté Windows :** brancher la vision sur MQTT (PIR + `sentinel/video/cam1`) ; dès que Npcap est installé, `record` du trafic normal puis ré-entraînement de l'IDS.
+
+**Contrat attendu de l'API d'ingestion (`POST /api/v1/alerts`, jeton Bearer)** : ce que la vision et l'IDS vont envoyer :
+
+```json
+{"origine": "RESEAU_IA", "type_alerte": "SCAN_PORTS", "niveau": "CRITIQUE",
+ "ip_source": "192.168.137.66", "numero_serie": null, "score_ia": 0.97,
+ "message": "SCAN_PORTS depuis 192.168.137.66 (score 0.97) : …", "action": "bloquee",
+ "details": {"confiance_type": 0.98, "principales_deviations": ["…"], "caracteristiques": {}}}
+```
+
+- Vision : `origine` `VISION_IA` ou `FUSION`, `zone`, `pir_confirme`, `score_ia`, `numero_serie` de l'ESP surveillé, `snapshot_jpeg_b64` facultatif (alertes critiques).
+- Les niveaux sont déjà en vocabulaire BDD (`INFORMATION`/`AVERTISSEMENT`/`CRITIQUE`) ; la vision sera alignée.
+- Pour les alertes réseau, l'API résout `numero_serie` en `id_dispositif` (peut être `null`). `details`, `action` et `ts` peuvent être journalisés sans être stockés en base.
+- Les ports d'écoute de l'API (`8443` côté IDS) sont provisoires : la session VM fixe la valeur, Windows s'aligne.
+
 ## Pièges déjà rencontrés
 
 - `docker compose exec` et `ssh` lisent l'entrée standard : dans un script heredoc, ajouter `</dev/null`, sinon ils avalent la suite du script.
