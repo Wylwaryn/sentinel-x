@@ -1,4 +1,5 @@
 {
+  "device_serie": null,
   "camera": {
     "index": 1,
     "width": 640,
@@ -28,12 +29,46 @@
     {
       "name": "perimetre",
       "kind": "perimeter",
-      "polygon": [[0.02, 0.25], [0.98, 0.25], [0.98, 1.0], [0.02, 1.0]]
+      "polygon": [
+        [
+          0.02,
+          0.25
+        ],
+        [
+          0.98,
+          0.25
+        ],
+        [
+          0.98,
+          1.0
+        ],
+        [
+          0.02,
+          1.0
+        ]
+      ]
     },
     {
       "name": "zone_interdite",
       "kind": "restricted",
-      "polygon": [[0.35, 0.55], [0.65, 0.55], [0.65, 1.0], [0.35, 1.0]]
+      "polygon": [
+        [
+          0.35,
+          0.55
+        ],
+        [
+          0.65,
+          0.55
+        ],
+        [
+          0.65,
+          1.0
+        ],
+        [
+          0.35,
+          1.0
+        ]
+      ]
     }
   ],
   "behaviour": {
@@ -47,19 +82,22 @@
     "blind_spot_delay_s": 2.0,
     "cooldown_s": 10.0
   },
-  "pir": {
+  "mqtt": {
     "enabled": false,
     "host": "127.0.0.1",
     "port": 8883,
-    "topic": "sentinel/telemetry",
-    "field": "pir",
+    "client_id": "sentinel-vision",
+    "telemetry_topic": "sentinel/telemetry",
+    "video_topic": "sentinel/video/cam1",
+    "video_fps": 5,
+    "video_quality": 70,
     "ca_cert": "../certs/ca.crt",
     "username_env": "SENTINEL_MQTT_USER",
     "password_env": "SENTINEL_MQTT_PASS"
   },
   "api": {
     "enabled": false,
-    "url": "https://127.0.0.1/api/v1/alerts",
+    "url": "https://127.0.0.1:8443/api/v1/alerts",
     "token_env": "SENTINEL_VISION_TOKEN",
     "ca_cert": "../certs/ca.crt",
     "timeout_s": 2.0

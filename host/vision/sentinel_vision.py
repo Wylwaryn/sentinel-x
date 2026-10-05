@@ -54,8 +54,8 @@ def extract_persons(result, width, height):
     if boxes is None or boxes.id is None:
         return []
     persons = []
-    for (x1, y1, x2, y2), tid in zip(boxes.xyxy.tolist(), boxes.id.int().tolist()):
-        persons.append({"track_id": tid, "box": (x1 / width, y1 / height, x2 / width, y2 / height)})
+    for (x1, y1, x2, y2), tid, conf in zip(boxes.xyxy.tolist(), boxes.id.int().tolist(), boxes.conf.tolist()):
+        persons.append({"track_id": tid, "box": (x1 / width, y1 / height, x2 / width, y2 / height), "conf": conf})
     return persons
 
 
@@ -102,13 +102,13 @@ def main():
     gate = MotionGate(config["motion"])
     analyzer = BehaviourAnalyzer(config["zones"], config["behaviour"])
     fusion = FusionEngine(config["fusion"])
-    sender = AlertSender(config["api"], base_dir)
+    sender = AlertSender(config["api"], base_dir, serie=config["device_serie"])
 
-    pir = None
-    if config["pir"]["enabled"]:
-        from pir_source import PirSource
-        pir = PirSource(config["pir"], fusion, base_dir)
-        pir.start()
+    link = None
+    if config["mqtt"]["enabled"]:
+        from mqtt_link import MqttLink
+        link = MqttLink(config["mqtt"], fusion, config["device_serie"], base_dir)
+        link.start()
 
     persons, recent_alerts, infer_ms = [], [], 0.0
     sim_pir_until = 0.0
@@ -146,12 +146,15 @@ def main():
                 recent_alerts.insert(0, (alert, ts))
             del recent_alerts[4:]
 
+            pir_txt = "PIR:ON" if fusion.pir_recent(ts) else "PIR:off"
+            link_txt = "" if link is None else (" MQTT:ok" if link.connected else " MQTT:--")
+            hud = f"{infer_ms:.1f} ms | {'ACTIF' if active else 'veille'} | " \
+                  f"mvt {gate.ratio * 100:.1f}% | {pir_txt}{link_txt}"
+            draw(frame, analyzer.zones, persons, analyzer, ts, hud, recent_alerts)
+            if link:
+                link.publish_frame(frame)  # flux annoté pour le dashboard
+
             if not args.headless:
-                pir_txt = "PIR:ON" if fusion.pir_recent(ts) else "PIR:off"
-                link = "" if pir is None else (" MQTT:ok" if pir.connected else " MQTT:--")
-                hud = f"{infer_ms:.1f} ms | {'ACTIF' if active else 'veille'} | " \
-                      f"mvt {gate.ratio * 100:.1f}% | {pir_txt}{link}"
-                draw(frame, analyzer.zones, persons, analyzer, ts, hud, recent_alerts)
                 cv2.imshow("Sentinel-X vision", frame)
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord("q"):
@@ -162,8 +165,8 @@ def main():
     finally:
         cap.release()
         cv2.destroyAllWindows()
-        if pir:
-            pir.stop()
+        if link:
+            link.stop()
 
 
 if __name__ == "__main__":

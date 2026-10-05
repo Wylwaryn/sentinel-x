@@ -98,9 +98,25 @@ class ApiSender:
         while True:
             payload = self.queue.get()
             try:
-                self.session.post(self.cfg["url"], json=payload, timeout=self.cfg["timeout_s"])
+                resp = self.session.post(self.cfg["url"], json=payload, timeout=self.cfg["timeout_s"])
+                if resp.status_code >= 400:
+                    print(f"[IDS] alerte refusée par l'API ({resp.status_code}) : {resp.text[:200]}")
             except requests.RequestException as exc:
                 print(f"[IDS] alerte non envoyée à l'API : {exc}")
+
+
+def to_api_payload(event):
+    """Événement complet -> format AlertIn de l'API d'ingestion (server/ingest/app/models.py)."""
+    return {
+        "type": event["type_alerte"],
+        "level": event["niveau"],
+        "source": event["origine"],
+        "serie": event["numero_serie"],
+        "ip_source": event["ip_source"],
+        "score": event["score_ia"],
+        "message": event["message"][:500],
+        "detail": {"action": event["action"], "ts": event["ts"], **event["details"]},
+    }
 
 
 class Responder:
@@ -149,5 +165,5 @@ class Responder:
         with self.log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(event, ensure_ascii=False) + "\n")
         if self.api:
-            self.api.send(event)
+            self.api.send(to_api_payload(event))
         return event

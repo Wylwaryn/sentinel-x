@@ -139,6 +139,18 @@ def test_cooldown_and_low_score(tmp_path):
     assert responder.handle(ip, 0.9, "SCAN_PORTS", 0.9, contrib(), ZERO, now=31)
 
 
+def test_api_payload_matches_ingest_contract(tmp_path):
+    from response import to_api_payload
+    responder, _ = make_responder(tmp_path, admin=False)
+    event = responder.handle("192.168.137.10", 0.99, "DENI_DE_SERVICE", 0.93, contrib(), ZERO, now=0)
+    p = to_api_payload(event)
+    # Champs lus par AlertIn (server/ingest/app/models.py)
+    assert p["type"] == "DENI_DE_SERVICE" and p["level"] == "CRITIQUE" and p["source"] == "RESEAU_IA"
+    assert p["serie"] == "SX-001" and p["ip_source"] == "192.168.137.10" and p["score"] == 0.99
+    assert len(p["message"]) <= 500
+    assert p["detail"]["action"] == "liste_blanche" and p["detail"]["confiance_type"] == 0.93
+
+
 def test_malformed_ip_rejected():
     blocker = FirewallBlocker(ttl_s=1, runner=FakeRunner(), admin=True)
     with pytest.raises(ValueError):

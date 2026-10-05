@@ -65,8 +65,11 @@ class BehaviourAnalyzer:
             track = self.tracks.setdefault(tid, _Track(last_seen=ts))
             track.last_seen = ts
             track.feet.append((ts, feet))
-            events.extend(self._zone_events(tid, track, feet, ts))
-            events.extend(self._speed_events(tid, track, feet, ts))
+            new_events = self._zone_events(tid, track, feet, ts) + self._speed_events(tid, track, feet, ts)
+            for ev in new_events:
+                if p.get("conf") is not None:
+                    ev.detail["conf"] = round(float(p["conf"]), 3)
+            events.extend(new_events)
 
         self._forget_stale(ts)
         return events

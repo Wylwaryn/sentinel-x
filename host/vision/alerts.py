@@ -1,5 +1,9 @@
-"""Envoi des alertes à l'API (POST /api/v1/alerts) en HTTPS, dans un thread dédié
-pour ne jamais bloquer la boucle vidéo. Si l'API est désactivée, affichage console."""
+"""Envoi des alertes à l'API d'ingestion (POST /api/v1/alerts) en HTTPS, dans un thread dédié
+pour ne jamais bloquer la boucle vidéo. Si l'API est désactivée, affichage console.
+
+Format attendu par l'API : server/ingest/app/models.py (AlertIn). La vision garde son
+vocabulaire (info/warning/critical, presence, loitering...) : l'API le traduit pour la base.
+"""
 import base64
 import os
 import queue
@@ -10,9 +14,20 @@ from datetime import datetime, timezone
 import requests
 
 
+def build_payload(alert, serie, snapshot_jpeg=None):
+    payload = asdict(alert)
+    payload["ts"] = datetime.now(timezone.utc).isoformat()
+    payload["serie"] = serie
+    payload["score"] = alert.detail.get("conf")  # confiance YOLO de la détection, None pour le PIR seul
+    if snapshot_jpeg is not None:
+        payload["snapshot_jpeg_b64"] = base64.b64encode(snapshot_jpeg).decode()
+    return payload
+
+
 class AlertSender:
-    def __init__(self, api_cfg, base_dir):
+    def __init__(self, api_cfg, base_dir, serie=None):
         self.cfg = api_cfg
+        self.serie = serie
         self.enabled = api_cfg["enabled"]
         self.queue = queue.Queue(maxsize=100)
         self.session = requests.Session()
@@ -25,12 +40,8 @@ class AlertSender:
         threading.Thread(target=self._worker, daemon=True).start()
 
     def send(self, alert, snapshot_jpeg=None):
-        payload = asdict(alert)
-        payload["ts"] = datetime.now(timezone.utc).isoformat()
-        if snapshot_jpeg is not None:
-            payload["snapshot_jpeg_b64"] = base64.b64encode(snapshot_jpeg).decode()
         try:
-            self.queue.put_nowait(payload)
+            self.queue.put_nowait(build_payload(alert, self.serie, snapshot_jpeg))
         except queue.Full:
             pass  # on privilégie la fluidité de la vidéo
 
@@ -43,6 +54,8 @@ class AlertSender:
                 print(f"[ALERTE] {label}")
                 continue
             try:
-                self.session.post(self.cfg["url"], json=payload, timeout=self.cfg["timeout_s"])
+                resp = self.session.post(self.cfg["url"], json=payload, timeout=self.cfg["timeout_s"])
+                if resp.status_code >= 400:
+                    print(f"[ALERTE refusée {resp.status_code}] {label} : {resp.text[:200]}")
             except requests.RequestException as exc:
                 print(f"[ALERTE non envoyée] {label} : {exc}")

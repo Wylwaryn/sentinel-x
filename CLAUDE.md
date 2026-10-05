@@ -103,30 +103,22 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 ## Windows : où en est la session Windows (mis à jour par elle)
 
 **Fait côté Windows :**
-- `host/vision/` : YOLOv8n + ByteTrack sur la RTX 5050 (10,8 ms par image), zones, fusion PIR (10 tests). MQTT et API pas encore branchés (`enabled: false`).
+- `host/vision/` : YOLOv8n + ByteTrack sur la RTX 5050 (10,8 ms par image), zones, fusion PIR (10 tests). MQTT branché et testé (`host/vision/mqtt_link.py`) ; `enabled: false` tant que la redirection 8883 n'existe pas.
 - `host/ids/` : IA réseau en 2 étages (13 tests, 17,6 ms par fenêtre sur GPU). Modèle amorcé sur du trafic synthétique, en attente de Npcap et du trafic réel.
 - Réponses aux demandes de la section VM :
   - [x] `ca.crt` copié dans **`host/certs/ca.crt`** (dossier partagé par la vision et l'IDS, pas `host/vision/certs/`). Empreinte SHA-256 `36:A8:B4:4A:…:68:55:AD`.
   - [x] Mot de passe `vision` récupéré seul, stocké dans les variables d'environnement utilisateur Windows `SENTINEL_MQTT_USER` / `SENTINEL_MQTT_PASS`. Jamais affiché ni commité.
   - [ ] Redirection NAT 8883 : **à faire par l'utilisateur dans l'interface VirtualBox.** La VM est enregistrée sous le compte Windows `marci` : la session Windows (compte `Wyllwaryn_User`) ne voit pas la VM avec VBoxManage.
   - [ ] IP du point d'accès : pas encore activé. Vérification prévue dès qu'il l'est.
-  - [ ] `client_id` uniques : la vision utilisera **une seule connexion MQTT** pour le PIR et la vidéo, avec `client_id = sentinel-vision`.
+  - [x] `client_id` uniques : **une seule connexion MQTT** pour le PIR et la vidéo (`client_id = sentinel-vision`).
 
 **Prochaines étapes côté Windows :** brancher la vision sur MQTT (PIR + `sentinel/video/cam1`) ; dès que Npcap est installé, `record` du trafic normal puis ré-entraînement de l'IDS.
 
-**Contrat attendu de l'API d'ingestion (`POST /api/v1/alerts`, jeton Bearer)** : ce que la vision et l'IDS vont envoyer :
+**Contrat avec l'API d'ingestion** (format `AlertIn` de `server/ingest/app/models.py`, qui fait foi) :
+- Vision : `POST https://127.0.0.1:8443/api/v1/alerts`, jeton `SENTINEL_VISION_TOKEN`. Champs envoyés : `type`, `level` et `source` dans le vocabulaire de la vision (traduits par l'API), `serie` (= `device_serie` dans `host/vision/config.json`), `score` (confiance YOLO), `pir_confirmed`, `track_id`, `zone`, `detail`, `ts`, `snapshot_jpeg_b64` (alertes critiques).
+- IDS : même route, jeton `SENTINEL_IDS_TOKEN`. `type`, `level` et `source=RESEAU_IA` en vocabulaire BDD, `serie` (ESP connu sinon `null`), `ip_source`, `score`, `message`, `detail` (`action`, `confiance_type`, caractéristiques). Le journal local `host/ids/logs/` garde l'événement complet.
 
-```json
-{"origine": "RESEAU_IA", "type_alerte": "SCAN_PORTS", "niveau": "CRITIQUE",
- "ip_source": "192.168.137.66", "numero_serie": null, "score_ia": 0.97,
- "message": "SCAN_PORTS depuis 192.168.137.66 (score 0.97) : …", "action": "bloquee",
- "details": {"confiance_type": 0.98, "principales_deviations": ["…"], "caracteristiques": {}}}
-```
-
-- Vision : `origine` `VISION_IA` ou `FUSION`, `zone`, `pir_confirme`, `score_ia`, `numero_serie` de l'ESP surveillé, `snapshot_jpeg_b64` facultatif (alertes critiques).
-- Les niveaux sont déjà en vocabulaire BDD (`INFORMATION`/`AVERTISSEMENT`/`CRITIQUE`) ; la vision sera alignée.
-- Pour les alertes réseau, l'API résout `numero_serie` en `id_dispositif` (peut être `null`). `details`, `action` et `ts` peuvent être journalisés sans être stockés en base.
-- Les ports d'écoute de l'API (`8443` côté IDS) sont provisoires : la session VM fixe la valeur, Windows s'aligne.
+**MQTT vision vérifié contre le vrai broker** (tunnel SSH, 5 octobre) : TLS et authentification OK ; télémétrie ESP vers vision (PIR) OK ; vidéo `sentinel/video/cam1` reçue par `dashboard` (5 images/s) OK ; vision ne reçoit pas `sentinel/cmd/+` et ne peut pas usurper `sentinel/telemetry`. Une seule connexion, `client_id = sentinel-vision`.
 
 ## Pièges déjà rencontrés
 
