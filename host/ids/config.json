@@ -26,7 +26,7 @@
     "enabled": false,
     "url": "https://127.0.0.1:8443/api/v1/alerts",
     "token_env": "SENTINEL_IDS_TOKEN",
-    "ca_cert": "../vision/certs/ca.crt",
+    "ca_cert": "../certs/ca.crt",
     "timeout_s": 2.0
   }
 }

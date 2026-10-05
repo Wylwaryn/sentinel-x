@@ -53,7 +53,7 @@
     "port": 8883,
     "topic": "sentinel/telemetry",
     "field": "pir",
-    "ca_cert": "certs/ca.crt",
+    "ca_cert": "../certs/ca.crt",
     "username_env": "SENTINEL_MQTT_USER",
     "password_env": "SENTINEL_MQTT_PASS"
   },
@@ -61,7 +61,7 @@
     "enabled": false,
     "url": "https://127.0.0.1/api/v1/alerts",
     "token_env": "SENTINEL_VISION_TOKEN",
-    "ca_cert": "certs/ca.crt",
+    "ca_cert": "../certs/ca.crt",
     "timeout_s": 2.0
   }
 }
