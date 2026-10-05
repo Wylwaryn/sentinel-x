@@ -76,6 +76,30 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 - Tests : `sudo mosquitto/tests/test_mqtt.sh` (33 tests : TLS, authentification, matrice ACL, limites).
 - ESP8266 : BearSSL, TLS 1.2, `ca.crt` en trust anchor, **heure NTP obligatoire** avant la connexion (validité du certificat), `client_id` = numéro de série.
 
+## VM : où en est la session VM (mis à jour par elle)
+
+**En service dans la VM** : PostgreSQL, Mosquitto MQTTS (8883, 33 tests OK).
+**En cours** : API d'ingestion.
+
+### À faire côté Windows (session locale ou utilisateur)
+
+- [ ] **Redirection NAT VirtualBox pour MQTTS** (sans elle, ni l'ESP ni la vision ne joignent le broker) :
+  `VBoxManage controlvm "sentinel-server" natpf1 "mqtts,tcp,,8883,,8883"`.
+  Le port écoute sur toutes les interfaces de Windows, puisque l'ESP passe par le Wi-Fi : le pare-feu Windows ne doit autoriser 8883 que depuis le sous-réseau du point d'accès.
+- [ ] **Vérifier l'IP du point d'accès Windows.** Le certificat contient `192.168.137.1`. Si l'IP est différente, le dire à la session VM, qui régénérera le certificat serveur (la CA ne change pas, donc le firmware reste valide).
+- [ ] **Copier `ca.crt`** (public) depuis la VM : `scp sentinel-vm:/opt/sentinel-x/server/certs/ca.crt host/vision/certs/`, et l'intégrer au firmware.
+- [ ] **Mots de passe `vision` et `esp`** : exception assumée à la règle « secrets jamais copiés sur Windows », puisque ces deux comptes tournent hors de la VM.
+  Les récupérer **un par un** (`ssh sentinel-vm sudo grep MQTT_VISION_PASSWORD /opt/sentinel-x/server/.env`), puis les ranger dans les variables d'environnement Windows `SENTINEL_MQTT_USER=vision` et `SENTINEL_MQTT_PASS`, ou dans le firmware. Ne jamais copier le `.env` entier ni le committer.
+- [ ] **Vision** : `client_id` uniques. Si la vision ouvre deux connexions (PIR et vidéo), leur donner deux identifiants différents, sinon chacune déconnecte l'autre.
+- [ ] **Firmware ESP8266** : NTP avant la connexion TLS, `client_id` = numéro de série, publication sur `sentinel/telemetry`, abonnement à `sentinel/cmd/<numero_serie>`.
+
+### À savoir
+
+- **Docker contourne UFW** pour les ports publiés (8883, plus tard 443) : la règle UFW de jeudi ne les filtrera pas. Le filtrage réel se fait au pare-feu Windows et dans la redirection VirtualBox.
+- ACL MQTT : le dashboard publie sur `sentinel/cmd/+` (plus strict que `cmd/#`). Un abonnement à `#` ne donne accès qu'aux topics autorisés pour le compte.
+- Mosquitto signale des droits trop ouverts sur le fichier `acl` : c'est sans conséquence en 2.0 et le fichier ne contient aucun secret.
+- Le broker n'a pas de NAT sortant : il reçoit des connexions mais ne peut pas joindre Internet.
+
 ## Pièges déjà rencontrés
 
 - `docker compose exec` et `ssh` lisent l'entrée standard : dans un script heredoc, ajouter `</dev/null`, sinon ils avalent la suite du script.
