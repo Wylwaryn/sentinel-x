@@ -1,0 +1,16 @@
+[Unit]
+Description=Sentinel-X : relevé de supervision (VM, conteneurs, Mosquitto, PostgreSQL)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/sentinel-x/sentinel_monitor.py collect
+Nice=10
+TimeoutStartSec=60
+# Durcissement : accès en écriture limité au journal de supervision.
+ProtectSystem=strict
+ReadWritePaths=/var/log/sentinel-x
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
