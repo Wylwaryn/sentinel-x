@@ -246,6 +246,14 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 
 **Npcap installé**, capture OK. Point d'accès Windows pas encore activé : l'interface de capture de l'IDS sera fixée quand il aura son IP.
 
+**Maintenance prédictive `host/predictive/` (5 oct., 11 tests)** :
+- **Caractéristiques cinétiques** sur 1 et 5 min : écart à la normale, pentes, accélération, volatilité, corrélations temp/gaz et temp/hum, valeurs manquantes ou figées.
+- **Étage 1** : Isolation Forest + écart statistique (max). **Étage 2** : Random Forest qui distingue SURCHAUFFE, FUITE_GAZ, CORRELATION_TEMP_GAZ et CAPTEUR_DEFAILLANT.
+- **Prévision** : délai avant les limites d'exploitation (`config.json`, 45 °C / gaz 700), qui ne déclenchent jamais rien seules. Persistance sur 2 évaluations, une alerte par épisode (début, aggravation, type précisé, prévision disponible, rappel toutes les 10 min).
+- **Mesures sur des données synthétiques jamais vues** : détection 90 %, typage 97,5 %, moins d'une fausse alerte par heure. Surchauffe à +1 °C/min : alerte à +30 s, délai annoncé 20,9 min pour 19,0 min réelles.
+- Envoi vers l'API : jeton `SENTINEL_CAPTEURS_TOKEN`, `source=CAPTEURS_IA`, `type=ANOMALIE_ENVIRONNEMENTALE`, `serie`, `score`, `message`, `detail` (sous-type, prévision, épisode).
+- **En attente du compte MQTT `capteurs`** (→ VM étape 7) pour la détection en direct. Le modèle est amorcé sur du synthétique : ré-entraîner sur la télémétrie réelle avec `record` puis `train`.
+
 **Contrat avec l'API d'ingestion** (format `AlertIn` de `server/ingest/app/models.py`, qui fait foi) :
 - Vision : `POST https://127.0.0.1:8443/api/v1/alerts`, jeton `SENTINEL_VISION_TOKEN`. Champs envoyés : `type`, `level` et `source` dans le vocabulaire de la vision (traduits par l'API), `serie` (= `device_serie` dans `host/vision/config.json`), `score` (confiance YOLO), `pir_confirmed`, `track_id`, `zone`, `detail`, `ts`, `snapshot_jpeg_b64` (alertes critiques).
 - IDS : même route, jeton `SENTINEL_IDS_TOKEN`. `type`, `level` et `source=RESEAU_IA` en vocabulaire BDD, `serie` (ESP connu sinon `null`), `ip_source`, `score`, `message`, `detail` (`action`, `confiance_type`, caractéristiques). Le journal local `host/ids/logs/` garde l'événement complet.

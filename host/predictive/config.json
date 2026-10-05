@@ -1,0 +1,46 @@
+{
+  "windows": {
+    "short_s": 60,
+    "long_s": 300,
+    "step_s": 10,
+    "warmup_s": 120,
+    "min_samples_short": 5,
+    "min_samples_long": 20
+  },
+  "model": {
+    "dir": "models",
+    "threshold_percentile": 99.5,
+    "iforest_trees": 200
+  },
+  "forecast": {
+    "_note": "Limites d'exploitation de la centrale (fiche technique). Elles servent UNIQUEMENT à estimer le délai avant incident ; elles ne déclenchent jamais d'alerte seules : la détection est faite par le modèle.",
+    "limites_exploitation": {"temp": 45.0, "gaz": 700},
+    "horizon_min": 30,
+    "critical_min": 10,
+    "min_score": 0.3
+  },
+  "response": {
+    "alert_score": 0.5,
+    "persistence": 2,
+    "critical_score": 0.85,
+    "cooldown_s": 30,
+    "reminder_s": 600,
+    "log_file": "logs/predictive_events.jsonl"
+  },
+  "mqtt": {
+    "host": "127.0.0.1",
+    "port": 8883,
+    "client_id": "sentinel-capteurs",
+    "topic": "sentinel/telemetry",
+    "ca_cert": "../certs/ca.crt",
+    "username_env": "SENTINEL_CAPTEURS_USER",
+    "password_env": "SENTINEL_CAPTEURS_PASS"
+  },
+  "api": {
+    "enabled": true,
+    "url": "https://127.0.0.1:8443/api/v1/alerts",
+    "token_env": "SENTINEL_CAPTEURS_TOKEN",
+    "ca_cert": "../certs/ca.crt",
+    "timeout_s": 3.0
+  }
+}

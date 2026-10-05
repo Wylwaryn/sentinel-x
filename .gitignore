@@ -19,3 +19,8 @@ host/ids/data/
 host/ids/models/
 host/ids/logs/
 *.joblib
+
+# Maintenance prédictive : télémétrie enregistrée, modèles, journaux
+host/predictive/data/
+host/predictive/models/
+host/predictive/logs/
