@@ -128,7 +128,7 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
    - des ACL : `esp` publie `sentinel/telemetry` et lit `sentinel/cmd/<serie>` ; `dashboard` publie `sentinel/cmd/#` et lit `sentinel/video/#` ; `vision` lit `sentinel/telemetry` et publie `sentinel/video/#` ; `ingest` lit `sentinel/telemetry`.
 2. **API d'ingestion** (session VM) : FastAPI. Abonnement MQTT vers `mesure`, `POST /api/v1/alerts` (jeton Bearer) vers `alerte`, détection `DISPOSITIF_HORS_LIGNE`.
 3. **Vision** (session Windows) : publication vidéo MQTT, envoi des alertes au format de l'API, traduction des niveaux.
-4. **IA réseau** (session Windows) : capture Npcap, caractéristiques calculées par fenêtre, autoencodeur + Isolation Forest, réponse en mode alerte ou blocage avec liste blanche.
+4. **IA réseau** (session Windows) : `host/ids/` FAIT (2 étages : autoencodeur + Isolation Forest, puis Random Forest pour le type ; 13 tests). Reste : installer Npcap, `record` du trafic normal réel, ré-entraîner, valider avec nmap / hping3 réels.
 
 ## Durcissement à faire jeudi matin, avant le pentest
 

@@ -13,3 +13,9 @@ __pycache__/
 # Modèles téléchargés
 *.pt
 *.onnx
+
+# IDS : trafic capturé (IP de la table), modèles entraînés, journaux d'événements
+host/ids/data/
+host/ids/models/
+host/ids/logs/
+*.joblib

@@ -6,3 +6,7 @@ opencv-python
 paho-mqtt>=2.0
 requests
 pytest
+# IDS (capture : installer aussi Npcap, https://npcap.com)
+scapy
+scikit-learn
+joblib
