@@ -20,7 +20,7 @@ ok()  { echo "  OK    $1"; PASS=$((PASS+1)); }
 ko()  { echo "  ÉCHEC $1"; FAIL=$((FAIL+1)); }
 check() { if [ "$1" = "$2" ]; then ok "$3"; else ko "$3 (attendu $2, obtenu $1)"; fi; }
 
-cleanup() { docker rm -f "$C" >/dev/null 2>&1; }
+cleanup() { docker rm -fv "$C" >/dev/null 2>&1; }
 trap cleanup EXIT
 cleanup
 
