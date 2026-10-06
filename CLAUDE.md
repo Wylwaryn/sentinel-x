@@ -422,6 +422,10 @@ Les photos de visages sont des données biométriques : la section « Images de 
 
 **Et le problème rencontré ?** Décris-le ici (symptôme, moniteur série), même avant de l'avoir résolu : il est peut-être déjà corrigé dans `main` (point 1).
 
+**Vision : qualité d'image et faible lumière (6 oct., soir).** Diagnostic avec `host/vision/camera_info.py` : l'exposition manuelle courte (`-6`) donnait une luminosité de 17 à 21 sur 255 (quasi noire). La webcam tient 1280x720 et 1920x1080 à 20 img/s en MJPG ; le gain n'a pas d'effet (ignoré par le pilote).
+- Désormais : **exposition automatique**, capture **1280x720 MJPG** réduite en 640x480 (`INTER_AREA`, moins de bruit). Résultat : luminosité 160/255, image nette.
+- **Rehaussement faible lumière** (`enhance.py`) : CLAHE sur la luminance + gamma, seulement si la luminosité est < 100. 0,25 ms quand il est inactif, 3,7 ms actif (image assombrie à 22, ramenée à 105). Le bandeau vidéo affiche `lum` et `NUIT`. 33 tests faces + vision.
+
 ### Demandes à la session VM
 
 **→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :

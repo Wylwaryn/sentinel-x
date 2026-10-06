@@ -19,6 +19,7 @@ from ultralytics import YOLO
 from alerts import AlertSender
 from behaviour import BehaviourAnalyzer
 from camera import open_camera
+from enhance import LowLightEnhancer
 from fusion import FusionEngine
 
 LEVEL_COLORS = {"info": (255, 200, 0), "warning": (0, 165, 255), "critical": (0, 0, 255)}
@@ -102,6 +103,7 @@ def main():
     model = YOLO(model_cfg["weights"])
     cap = open_camera(config["camera"])
     gate = MotionGate(config["motion"])
+    enhancer = LowLightEnhancer(config.get("enhance", {"enabled": False, "clahe_clip": 2.0}))
     analyzer = BehaviourAnalyzer(config["zones"], config["behaviour"])
     fusion = FusionEngine(config["fusion"])
     sender = AlertSender(config["api"], base_dir, serie=config["device_serie"])
@@ -148,7 +150,8 @@ def main():
                 except RuntimeError as exc:
                     print(f"[CAMÉRA] {exc}")
                 continue
-            frame = cv2.resize(frame, (640, 480))
+            frame = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_AREA)
+            frame = enhancer(frame)  # faible lumière : image rehaussée pour l'IA, les visages et la vidéo
             ts = time.monotonic()
 
             if sim_pir_until and ts > sim_pir_until:
@@ -185,6 +188,8 @@ def main():
             link_txt = "" if link is None else (" MQTT:ok" if link.connected else " MQTT:--")
             hud = f"{infer_ms:.1f} ms | {'ACTIF' if active else 'veille'} | " \
                   f"mvt {gate.ratio * 100:.1f}% | {pir_txt}{link_txt}"
+            if enhancer.last_mean is not None:
+                hud += f" | lum {enhancer.last_mean:.0f}" + (" NUIT" if enhancer.active else "")
             names = (lambda tid: label(tracker, tid, ts)) if tracker else None
             draw(frame, analyzer.zones, persons, analyzer, ts, hud, recent_alerts, names)
             if link:

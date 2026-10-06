@@ -5,11 +5,20 @@
     "width": 640,
     "height": 480,
     "fps": 30,
-    "auto_exposure": false,
+    "auto_exposure": true,
     "exposure": -6,
     "auto_white_balance": false,
     "white_balance": 4500,
-    "gain": null
+    "gain": null,
+    "fourcc": "MJPG",
+    "capture_width": 1280,
+    "capture_height": 720
+  },
+  "enhance": {
+    "enabled": true,
+    "dark_threshold": 100,
+    "clahe_clip": 2.0,
+    "target_mean": 115
   },
   "model": {
     "weights": "yolov8n.pt",

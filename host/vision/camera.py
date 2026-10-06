@@ -16,8 +16,12 @@ def open_camera(cam_cfg):
     cap = cv2.VideoCapture(cam_cfg["index"], cv2.CAP_DSHOW)
     if not cap.isOpened():
         raise RuntimeError(f"Impossible d'ouvrir la webcam {cam_cfg['index']}")
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, cam_cfg["width"])
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cam_cfg["height"])
+    if cam_cfg.get("fourcc"):
+        # MJPG : la webcam tient 1280x720 et 1920x1080 à 20 img/s (mesuré avec camera_info.py)
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*cam_cfg["fourcc"]))
+    # Capture plus grande que l'analyse : la réduction à 640x480 (INTER_AREA) moyenne le bruit du capteur
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, cam_cfg.get("capture_width", cam_cfg["width"]))
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cam_cfg.get("capture_height", cam_cfg["height"]))
     cap.set(cv2.CAP_PROP_FPS, cam_cfg["fps"])
     apply_image_settings(cap, cam_cfg)
     return cap
