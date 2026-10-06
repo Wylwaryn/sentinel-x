@@ -62,15 +62,31 @@ section "Pare-feu et services réseau"
 ufw_out=$(ufw status verbose 2>/dev/null)
 grep -q "^Status: active" <<<"$ufw_out"; planned $? "UFW actif"
 grep -q "Default: deny (incoming)" <<<"$ufw_out"; planned $? "UFW : refus par défaut en entrée" "$(grep '^Default' <<<"$ufw_out")"
-extra=$(grep ALLOW <<<"$ufw_out" | grep -vE '^22/tcp( \(v6\))? ' | awk '{print $1}' | sort -u | tr '\n' ' ')
-[ -z "$extra" ]; must $? "UFW : aucune ouverture autre que 22/tcp" "${extra:-ok}"
+gw=$(ip -4 route show default | awk '{for(i=1;i<NF;i++) if($i=="via") print $(i+1); exit}')
+grep -qE "^22/tcp +ALLOW IN +${gw//./\\.}( |$)" <<<"$ufw_out"
+planned $? "UFW : SSH 22 autorisé depuis la passerelle NAT ($gw) uniquement"
+grep -qE '^22/tcp +ALLOW IN +Anywhere' <<<"$ufw_out"; [ $? -ne 0 ]
+planned $? "UFW : pas de SSH ouvert à toute source"
+extra=$(grep ALLOW <<<"$ufw_out" | grep -vE '^22/tcp( \(v6\))? ' | grep -v ' OUT ' | awk '{print $1}' | sort -u | tr '\n' ' ')
+[ -z "$extra" ]; must $? "UFW : aucune ouverture en entrée autre que SSH" "${extra:-ok}"
+du=$(iptables -S DOCKER-USER 2>/dev/null)
+grep -q -- "-i enp0s3 -j DROP" <<<"$du" && grep -q -- "--ctorigdstport 8883 -j RETURN" <<<"$du" \
+    && grep -q -- "--ctorigdstport 8443 -j RETURN" <<<"$du"
+planned $? "Ports des conteneurs filtrés (DOCKER-USER : 8883, 8443, 443 depuis $gw, reste bloqué)" "Docker contourne UFW"
+grep -q "SENTINEL-X DOCKER-USER" /etc/ufw/after.rules /etc/ufw/after6.rules 2>/dev/null
+planned $? "Filtrage DOCKER-USER persistant (rechargé par UFW au démarrage, IPv4 et IPv6)"
+pub=$(docker ps --format '{{.Ports}}' | grep -oE '0\.0\.0\.0:[0-9]+' | cut -d: -f2 | sort -un | tr '\n' ' ')
+[ -z "$(tr ' ' '\n' <<<"$pub" | grep -vxE '8883|8443|443|')" ]
+must $? "Ports publiés par Docker dans la liste blanche (8883, 8443, 443)" "publiés : ${pub:-aucun}"
+if grep -q "deny (outgoing)" <<<"$ufw_out"; then line INFO "Sorties de la VM bloquées sauf DNS/NTP" "firewall.sh --egress"
+else line INFO "Sorties de la VM non filtrées" "option firewall.sh --egress, non décidée"; fi
 ! systemctl is-active -q cups.service cups.socket 2>/dev/null; planned $? "CUPS arrêté" "port 631"
 [ "$(systemctl is-enabled cups.service 2>/dev/null)" = masked ]; planned $? "CUPS masqué (ne redémarre pas)"
 listen=$(ss -Htln | awk '{print $4}')
 public=$(grep -vE '^(127\.|\[::1\]|\[::ffff:127\.)' <<<"$listen" | sed -E 's/.*:([0-9]+)$/\1/' | sort -un | tr '\n' ' ')
 expected="22 8443 8883 "
 [ "$public" = "$expected" ]; must $? "Ports en écoute hors loopback = 22, 8443, 8883" "trouvés : ${public:-aucun}"
-manual "Docker contourne UFW pour 8443/8883" "filtrage réel : redirections VirtualBox + pare-feu Windows"
+manual "Redirections VirtualBox : 8443 et 2222 liées à 127.0.0.1, pare-feu Windows (windows_firewall.ps1)"
 manual "VirtualBox : presse-papiers et glisser-déposer désactivés" "réglage de la VM, côté Windows"
 manual "Deploy key GitHub révoquée ou en lecture seule" "github.com > Settings > Deploy keys"
 

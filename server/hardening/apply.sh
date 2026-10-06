@@ -2,7 +2,7 @@
 # Durcissement de la VM avant le pentest de jeudi. Idempotent : relançable sans effet de bord.
 #
 #   sudo hardening/apply.sh                      # SIMULATION (par défaut) : affiche ce qui changerait
-#   sudo hardening/apply.sh --apply              # applique SSH, UFW, CUPS
+#   sudo hardening/apply.sh --apply              # applique SSH, pare-feu (firewall.sh), CUPS
 #   sudo hardening/apply.sh --apply --remove-sudoers
 #                                                # + supprime le sudo sans mot de passe (TOUT DERNIER,
 #                                                #   lancé par l'utilisateur : ensuite sudo demande le mot de passe)
@@ -74,29 +74,11 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-title "UFW : refus par défaut en entrée, seul SSH (22) autorisé"
-# Rappel : les ports publiés par Docker (8883, 8443) passent par FORWARD/DOCKER, pas par INPUT :
-# UFW ne les filtre pas et ne les casse pas. Leur filtrage se fait côté VirtualBox et Windows.
-status=$(ufw status verbose 2>/dev/null || true)
-if grep -q "Default: deny (incoming)" <<<"$status"; then
-    same "politique d'entrée = deny"
-else
-    do_ "ufw default deny incoming" ufw default deny incoming
-fi
-if grep -qE "^22/tcp +ALLOW IN" <<<"$status"; then
-    same "22/tcp autorisé"
-else
-    do_ "ufw allow 22/tcp (SSH, joignable uniquement via la redirection 127.0.0.1:2222 de l'hôte)" \
-        ufw allow 22/tcp comment 'SSH via NAT VirtualBox (127.0.0.1:2222 cote Windows)'
-fi
-if grep -q "^Status: active" <<<"$status"; then
-    same "UFW actif"
-else
-    do_ "activer UFW" ufw --force enable
-fi
-others=$(grep -E "ALLOW" <<<"$status" | grep -vE "^22/tcp( \(v6\))? " | grep -v "^Default" || true)
-[ -z "$others" ] && same "aucune autre règle d'ouverture" \
-    || { echo "  ATTENTION : autres règles ouvertes, à revoir à la main :"; sed 's/^/      /' <<<"$others"; }
+# Pare-feu (UFW + ports des conteneurs) : délégué à firewall.sh, seule source des règles.
+# Sans --egress : les sorties ne sont pas bloquées (option à décider, voir firewall.sh).
+title "Pare-feu : voir hardening/firewall.sh"
+if [ $APPLY -eq 1 ]; then "$(dirname "$0")/firewall.sh" --apply; else "$(dirname "$0")/firewall.sh"; fi \
+    | sed -e '/^MODE /d' -e 's/^/  /'
 
 # ---------------------------------------------------------------------------
 title "CUPS (impression, port 631) : arrêté et masqué"
