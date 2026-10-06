@@ -27,7 +27,8 @@
     "block_ttl_s": 300,
     "cooldown_s": 30,
     "whitelist": [
-      "127.0.0.1"
+      "127.0.0.1",
+      "192.168.137.2"
     ],
     "log_file": "logs/ids_events.jsonl"
   },
@@ -38,5 +39,7 @@
     "ca_cert": "../certs/ca.crt",
     "timeout_s": 2.0
   },
-  "devices": {}
+  "devices": {
+    "192.168.137.2": "SX-G2-01"
+  }
 }

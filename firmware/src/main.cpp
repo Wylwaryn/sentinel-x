@@ -22,9 +22,11 @@
 #include "config.h"
 #include "secrets.h"
 
-// Horodatage de compilation : repli si le NTP est injoignable (le certificat doit être « valide maintenant »)
+// Heure de compilation, injectée par build_epoch.py : repli si le NTP est injoignable.
+// BearSSL vérifie que le certificat du broker est « valide maintenant » : cette date doit être
+// postérieure à l'émission des certificats (CA créée le 5 oct. 2026 vers 14 h 42 UTC).
 #ifndef BUILD_EPOCH
-#define BUILD_EPOCH 1791158400UL  // 2026-10-05, mis à jour par la compilation si fourni
+#error "BUILD_EPOCH absent : compiler avec PlatformIO (extra_scripts = pre:build_epoch.py)"
 #endif
 
 DHT dht(PIN_DHT, DHT22);
@@ -187,7 +189,13 @@ void setup() {
   tls.setTrustAnchors(&trustAnchor);
   // Petits tampons TLS si le broker accepte la négociation de taille de fragment (économise ~20 Ko de RAM)
   if (tls.probeMaxFragmentLength(MQTT_HOST, MQTT_PORT, 1024)) tls.setBufferSizes(1024, 1024);
-  mqtt.setServer(MQTT_HOST, MQTT_PORT);
+  // Connexion PAR IP : BearSSL ne sait pas vérifier une IP dans le SAN du certificat
+  // (« Expected server name was not found in the chain »). En passant une IPAddress, la
+  // correspondance de nom est sautée, mais la chaîne reste vérifiée : certificat signé par
+  // NOTRE CA privée (qui n'a émis que nos serveurs) et valide à la date courante.
+  IPAddress brokerIp;
+  brokerIp.fromString(MQTT_HOST);
+  mqtt.setServer(brokerIp, MQTT_PORT);
   mqtt.setCallback(onCommand);
   mqtt.setBufferSize(512);
   mqtt.setKeepAlive(30);
