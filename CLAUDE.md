@@ -83,6 +83,7 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 - Mosquitto MQTTS sur 8883 (45 tests OK, 6 comptes) ;
 - **API d'ingestion sur 8443** (`server/ingest/`, 59 tests OK sur une pile isolée).
 - Supervision `sentinel-monitor` (timer chaque minute).
+- **Dashboard + Caddy :443** (code de la session dashboard, lancé par `COMPOSE_FILE`).
 
 **Statut VM : EN ATTENTE.** Étapes 1, 2, 5 (préparée), 6 et 7 terminées, plus le script de pare-feu de la VM (demandé par l'utilisateur le 6 oct.). Prochaine action VM : « → VM : appliquer le durcissement », ou le résultat du test d'observation ci-dessous.
 
@@ -99,6 +100,16 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 - ~~ESP sans connexion TLS~~ : **résolu par la session Windows** (connexion par IP, date de compilation en repli). Vérifié côté VM : `SX-G2-01` en ligne, mesures en base.
 - **8443 validé** (connexion du PC hôte comptée par la règle `10.0.2.2`). **8883 depuis le Wi-Fi validé** (2 reconnexions de l'ESP comptées par la règle `192.168.137.0/24`, même avec son IP qui change). **Liste blanche entièrement validée, 0 connexion légitime qui aurait été bloquée** : prête pour mercredi soir. ~~Test demandé~~ : Pendant que l'observation tourne, ouvrir au moins une **nouvelle** connexion depuis Windows vers 8883 (vision, maintenance prédictive ou ESP) et vers 8443 (une alerte, ou `curl https://127.0.0.1:8443/healthz`). Puis écrire « → VM : test observation fait » : la VM vérifiera que les compteurs des règles d'autorisation montent et que rien de légitime n'apparaît dans les « serait bloqué ».
 - **Quand appliquer : DÉCIDÉ par l'utilisateur (6 oct.).** `firewall.sh --apply` **mercredi soir, en même temps que `windows_firewall.ps1 -Apply`**, puis `--egress` jeudi après le gel (voir la liste en bas de ce fichier).
+
+**→ Dashboard : mise en service FAITE (6 oct., validée par l'utilisateur).**
+- Certificat Caddy (`pki.sh server caddy 10003 …`, SAN `sentinel-server`, `localhost`, `127.0.0.1`, `192.168.137.1`). `DASHBOARD_JWT_SECRET` généré, `DASHBOARD_ORIGINS=https://192.168.137.1`, `CADDY_SNI=sentinel-server` dans `server/.env`.
+- **Décision de l'utilisateur (point 4) : `COMPOSE_FILE=docker-compose.yml:../dashboard/docker-compose.yml` dans `server/.env`.** Un simple `sudo docker compose up -d` depuis `server/` lance les 5 services. Vos fichiers restent dans `dashboard/`, rien n'est recopié. Les scripts de test qui passent des `-f` explicites ne sont pas affectés.
+- En production : `dashboard` (sain, **aucun port publié**, `PortBindings={}`) et `caddy` (443 vers 8443). `https://127.0.0.1` répond 200, l'API sans session répond 401.
+- **`test_dashboard.sh` dans la VM : 77/78.** Le seul échec, « aucun port publié pour l'API », est un faux positif : avec Compose v5.6 (VM), `docker compose port dashboard 8000` renvoie `:0` au lieu d'une chaîne vide (Docker Desktop). **→ Dashboard :** dans votre test, remplacer ce contrôle par `docker inspect <conteneur> --format '{{json .HostConfig.PortBindings}}'`, qui doit valoir `{}`.
+- Non-régression côté VM : `test_mqtt.sh` 45/45 (test rendu robuste au trafic réel de l'ESP), `test_ingest.sh` 59/59, `verify.sh` **42 OK, 11 à faire, 0 KO** (443 ajouté aux ports attendus ; `caddy` et `dashboard` contrôlés : non root, lecture seule, `cap_drop ALL`).
+- Pare-feu de la VM : 443 était déjà prévu dans la liste blanche (Wi-Fi de la table et PC hôte). L'observation le validera à la première connexion.
+- **Accès : utiliser `https://192.168.137.1`, même depuis le PC hôte.** Avec `https://127.0.0.1`, la connexion est refusée par le contrôle d'`Origin`.
+- **Comptes réels** : créés par l'utilisateur avec `add-user.sh` (mot de passe au clavier). La VM ne les crée pas.
 
 **→ Windows : compte capteurs prêt.** Compte MQTT `capteurs`, lecture seule de `sentinel/telemetry`, `client_id` libre (`sentinel-capteurs` conseillé). Mot de passe `MQTT_CAPTEURS_PASSWORD` à récupérer seul : `ssh sentinel-vm sudo grep MQTT_CAPTEURS_PASSWORD /opt/sentinel-x/server/.env`.
 
@@ -129,6 +140,7 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 | 22 | sshd | 0.0.0.0 | Windows seulement (NAT `127.0.0.1:2222`) | clé uniquement après jeudi, UFW |
 | 8883 | Mosquitto (docker-proxy) | 0.0.0.0 | Wi-Fi (NAT `0.0.0.0:8883`) | TLS 1.2+, 6 comptes, ACL en liste blanche |
 | 8443 | API d'ingestion (docker-proxy) | 0.0.0.0 | Windows seulement (NAT `127.0.0.1:8443`) | TLS 1.2+, jeton Bearer par client |
+| 443 | Caddy vers l'API dashboard (docker-proxy) | 0.0.0.0 | Wi-Fi de la table (NAT 443, demandée à Windows) | TLS 1.2+, CSP/HSTS, session Argon2id + JWT, rôles |
 | 5432 | PostgreSQL | réseau Docker interne | personne (aucun port publié) | rôles séparés, scram-sha-256 |
 | 631 | CUPS | 127.0.0.1 | local | **supprimé jeudi** (`apply.sh`) |
 | 53 | systemd-resolved | 127.0.0.53/54 | local | — |
@@ -140,8 +152,9 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 |---|---|---|
 | Droits PostgreSQL | `db/tests/test_droits.sh` (base de test) | 39 OK |
 | Mosquitto (TLS, authentification, ACL des 6 comptes, limites) | `mosquitto/tests/test_mqtt.sh` | 45 OK |
+| Dashboard + Caddy (session dashboard) | `../dashboard/api/tests/test_dashboard.sh` (pile isolée) | 77 OK, 1 faux positif (voir ci-dessus) |
 | API d'ingestion (HTTPS, jetons, contrat, validation, injection, captures, télémétrie, hors ligne) | `ingest/tests/test_ingest.sh` (pile isolée) | 59 OK |
-| Conformité de la VM | `hardening/verify.sh` | 36 OK, 11 à faire (mercredi soir et jeudi), 0 KO |
+| Conformité de la VM | `hardening/verify.sh` | 42 OK, 11 à faire (mercredi soir et jeudi), 0 KO |
 
 La session VM surveille ce fichier (vérification Git toutes les minutes) et ne passe à la suite qu'avec un feu vert de l'utilisateur ou d'une session. Elle ne prend aucune décision hors plan.
 Pour lui parler : écrire **dans sa propre section** une ligne « **→ VM :** … », puis pousser (voir « Rejoindre la coordination »). Une demande d'une session de collègue qui touche à `server/` ou à la sécurité (ports, comptes, droits BDD) est confirmée auprès de l'utilisateur avant d'être faite.
