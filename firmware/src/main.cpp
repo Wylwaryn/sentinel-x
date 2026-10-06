@@ -45,6 +45,7 @@ bool oledOk = false;
 bool gasFault = false, gasRising = false;  // pour le bandeau d'alerte locale de l'OLED
 bool timeOk = false;
 unsigned long bootMs, lastSensor = 0, lastPublish = 0, lastMqttOk = 0, lastReconnect = 0;
+unsigned long lastTimeSync = 0;  // 0 = heure jamais réglée pour BearSSL (Wi-Fi absent au démarrage)
 unsigned long buzzerUntil = 0;
 enum LedMode { LED_OFF, LED_ON, LED_BLINK };
 LedMode redMode = LED_OFF, greenMode = LED_OFF;
@@ -130,6 +131,7 @@ bool publishTelemetry() {
 
 // ---------------------------------------------------------------- réseau
 void syncTime() {
+  lastTimeSync = millis();
   configTime(0, 0, "pool.ntp.org", "time.google.com");
   unsigned long start = millis();
   while (time(nullptr) < 1700000000 && millis() - start < 15000) delay(200);
@@ -141,7 +143,9 @@ void syncTime() {
 
 bool connectMqtt() {
   if (WiFi.status() != WL_CONNECTED) return false;
-  if (!timeOk && millis() - lastReconnect > 60000) syncTime();
+  // Heure jamais réglée (l'ESP a démarré avant le point d'accès) : sans elle, BearSSL refuse le certificat
+  // indéfiniment. On la règle dès que le Wi-Fi est là, puis on retente le NTP toutes les 60 s s'il échoue.
+  if (lastTimeSync == 0 || (!timeOk && millis() - lastTimeSync > 60000)) syncTime();
   Serial.printf("[MQTT] connexion à %s:%d ... ", MQTT_HOST, MQTT_PORT);
   bool ok = mqtt.connect(SERIE, MQTT_USER, MQTT_PASS);
   if (ok) {
@@ -271,6 +275,8 @@ void loop() {
     bool gasSpike = gasBaseline > 0 && r.gas > gasBaseline * 1.5f + 50;
     if (r.pir || gasSpike) { redMode = LED_BLINK; if (pirChanged || gasSpike) beep(800); }
     else if (now >= redManualUntil) redMode = LED_OFF;
+  } else if (online && now >= redManualUntil) {
+    redMode = LED_OFF;  // liaison revenue : éteindre ce que le mode secours avait allumé
   }
 
   applyLeds();

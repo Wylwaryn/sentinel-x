@@ -62,7 +62,7 @@ def test_stranger_intrusion_released_after_grace(tmp_path):
     tracker, gate = make(tmp_path, STRANGER)
     out = run(tracker, gate, [(0.0, intrusion(0.0))])
     assert [e.type for e in out] == ["intrusion"]
-    assert out[0].detail["personne"] == UNKNOWN and "non identifiée" in out[0].detail["message"]
+    assert out[0].detail["personne"] == UNKNOWN
 
 
 def test_face_not_visible_is_treated_as_unknown(tmp_path):
@@ -88,3 +88,26 @@ def test_authorized_presence_not_escalated_by_pir(tmp_path):
     f.on_pir(True, 0.0)
     alerts = f.update(1.0, out, persons_visible=True)
     assert alerts[0].level == "info" and alerts[0].pir_confirmed
+
+
+def test_messages_are_readable_and_mention_pir(tmp_path):
+    from alerts import build_payload
+    from fusion import Alert
+    unknown = Alert(type="presence", level="warning", source="fusion", pir_confirmed=True, ts=0, track_id=7,
+                    zone="perimetre", detail={"personne": UNKNOWN, "conf": 0.8})
+    assert build_payload(unknown, "SX")["message"] == "Présence : personne non identifiée (perimetre), confirmée par le PIR"
+    member = Alert(type="presence", level="info", source="vision", pir_confirmed=False, ts=0, track_id=7, zone=None,
+                   detail={"personne": AUTHORIZED, "id_personne": 1, "message": "Personne autorisée : Alice (ADMIN)"})
+    assert build_payload(member, "SX")["message"] == "Personne autorisée : Alice (ADMIN)"
+
+
+def test_same_person_new_track_not_realerted():
+    """Le suivi change de numéro : la même personne inconnue ne relance pas l'alerte de présence."""
+    f = FusionEngine({"pir_window_s": 3.0, "blind_spot_delay_s": 2.0, "cooldown_s": 10.0,
+                      "type_cooldown_s": {"presence": 60}})
+    def presence(tid, ts):
+        return VisionEvent(type="presence", level="info", track_id=tid, zone="perimetre", ts=ts,
+                           detail={"personne": UNKNOWN})
+    assert len(f.update(0.0, [presence(7, 0.0)], True)) == 1
+    assert f.update(20.0, [presence(8, 20.0)], True) == []        # nouvelle piste, même « inconnue »
+    assert len(f.update(61.0, [presence(9, 61.0)], True)) == 1    # après 60 s

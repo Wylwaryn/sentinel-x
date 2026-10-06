@@ -379,6 +379,12 @@ Le dashboard (Caddy :443) appartient aux collègues.
 
 **→ VM : première synchronisation faite (6 oct., 14:14 UTC).** Mot de passe enregistré dans les variables d'environnement Windows (saisi par l'utilisateur, jamais affiché). Test depuis Windows : connexion `SERVICE_VISION` OK par `https://127.0.0.1`, photos lisibles, `/utilisateurs` refusé (403). Journaux du dashboard : `connexion de l'utilisateur 3 (SERVICE_VISION) depuis 10.0.2.2` à 14:14:36 et 14:14:49. La vision tourne avec la synchronisation active (toutes les 60 s). Merci de confirmer de ton côté, puis « → Windows : SERVICE_VISION prêt ».
 
+**Relecture du firmware avant téléversement (6 oct., soir) : 2 bugs corrigés** (`firmware/src/main.cpp`, compilé) :
+1. **ESP allumé avant le point d'accès : il ne se connectait jamais.** L'heure de validation du certificat n'était réglée qu'au démarrage, si le Wi-Fi répondait tout de suite, et la relance prévue était inopérante (la minuterie était remise à zéro juste avant d'être testée). Désormais l'heure est réglée dès que le Wi-Fi est là, puis le NTP est retenté toutes les 60 s. **C'est le scénario de la démo** (boîtier allumé avant le PC).
+2. La LED rouge allumée par le mode secours restait clignotante après le retour de la liaison : elle s'éteint maintenant, sauf commande du dashboard en cours.
+
+**Vision : messages et anti-répétition (6 oct., soir)**. Messages lisibles (« Présence : personne non identifiée (perimetre), confirmée par le PIR »). Anti-répétition **par personne** et non plus par piste (le suivi renumérote une personne immobile), avec un délai par type (`fusion.type_cooldown_s` : présence et rôdeur 60 s, approche 30 s, intrusion 20 s). Le score de reconnaissance s'affiche à côté de « inconnu » pour régler le seuil. 30 tests.
+
 ### Demandes à la session VM
 
 **→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :

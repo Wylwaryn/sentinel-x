@@ -14,13 +14,34 @@ from datetime import datetime, timezone
 import requests
 
 
+LABELS = {"presence": "Présence", "intrusion": "Intrusion", "loitering": "Rôdeur",
+          "fast_approach": "Approche rapide", "pir_blind_spot": "Angle mort"}
+
+
+def message(alert):
+    """Message lisible pour le journal du dashboard."""
+    d = alert.detail
+    if d.get("personne") == "autorisee" and d.get("message"):
+        text = d["message"]                                      # « Personne autorisée : <nom> (<rôle>) »
+    elif alert.type == "pir_blind_spot":
+        text = d.get("message") or LABELS[alert.type]
+    else:
+        text = LABELS.get(alert.type, alert.type)
+        if d.get("personne") == "inconnue":
+            text += " : personne non identifiée"
+        if alert.zone:
+            text += f" ({alert.zone.replace('_', ' ')})"
+    if alert.pir_confirmed and alert.type != "pir_blind_spot":
+        text += ", confirmée par le PIR"
+    return text[:500]
+
+
 def build_payload(alert, serie, snapshot_jpeg=None):
     payload = asdict(alert)
     payload["ts"] = datetime.now(timezone.utc).isoformat()
     payload["serie"] = serie
     payload["score"] = alert.detail.get("conf")  # confiance YOLO (ou de la reconnaissance), None pour le PIR seul
-    if alert.detail.get("message"):
-        payload["message"] = alert.detail["message"][:500]
+    payload["message"] = message(alert)
     if alert.detail.get("id_personne") is not None:
         # -> alerte.id_personne_reconnue (ignoré par l'API tant qu'elle ne gère pas ce champ)
         payload["personne_reconnue"] = alert.detail["id_personne"]

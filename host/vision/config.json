@@ -80,7 +80,14 @@
   "fusion": {
     "pir_window_s": 3.0,
     "blind_spot_delay_s": 2.0,
-    "cooldown_s": 10.0
+    "cooldown_s": 10.0,
+    "type_cooldown_s": {
+      "presence": 60,
+      "loitering": 60,
+      "fast_approach": 30,
+      "intrusion": 20,
+      "pir_blind_spot": 60
+    }
   },
   "faces": {
     "enabled": true,

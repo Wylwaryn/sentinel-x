@@ -31,6 +31,7 @@ class _TrackId:
     verified_at: float = -1e9
     hits: dict = field(default_factory=dict)
     face_seen: bool = False
+    last_score: float | None = None   # dernière similarité avec la galerie (réglage du seuil)
 
 
 class IdentityTracker:
@@ -60,6 +61,7 @@ class IdentityTracker:
                 continue
             st.face_seen = True
             pid, name, role, score = self.gallery.match(self.engine.embed(crop, faces[0]), self.cfg["threshold"])
+            st.last_score = score
             if pid is None:
                 st.hits.clear()
                 if st.identity is not None:   # n'est plus reconnu à la re-vérification
@@ -117,7 +119,6 @@ class EventGate:
             else:
                 for ev in evs:
                     ev.detail["personne"] = UNKNOWN
-                    ev.detail.setdefault("message", f"{ev.type} : personne non identifiée")
                     out.append(ev)
         return out
 
@@ -126,7 +127,13 @@ def label(tracker, tid, ts):
     status = tracker.status(tid, ts)
     if status == AUTHORIZED:
         return tracker.identity(tid)[1]
-    return "?" if status == PENDING else "inconnu"
+    if status == PENDING:
+        return "?"
+    st = tracker.tracks.get(tid)
+    if st is None or not st.face_seen:
+        return "inconnu (visage non vu)"
+    # Score affiché pour régler le seuil : proche du seuil = même personne mal éclairée / autre caméra
+    return f"inconnu ({st.last_score:.2f})" if st.last_score is not None else "inconnu"
 
 
 def unit(v):

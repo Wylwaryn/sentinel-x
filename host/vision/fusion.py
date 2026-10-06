@@ -67,7 +67,10 @@ class FusionEngine:
                 alert = Alert(type=ev.type, level=level, source="fusion" if pir else "vision",
                               pir_confirmed=pir, ts=ts, track_id=ev.track_id, zone=ev.zone,
                               detail=dict(ev.detail))
-                if self._should_send((ev.type, ev.track_id), ts):
+                # Anti-répétition par PERSONNE, pas par piste : le suivi change de numéro quand une
+                # personne immobile est perdue puis retrouvée, ce qui relançait la même alerte.
+                who = ev.detail.get("id_personne") or ev.detail.get("personne") or ev.track_id
+                if self._should_send((ev.type, who), ts, self._cooldown(ev.type)):
                     alerts.append(alert)
 
             blind = self._blind_spot_unlocked(ts)
@@ -90,9 +93,12 @@ class FusionEngine:
         # Une personne vue depuis la montée du PIR explique le déclenchement
         return self._last_person_seen is None or self._last_person_seen < self._pir_rose_at
 
-    def _should_send(self, key, ts):
+    def _cooldown(self, kind):
+        return self.cfg.get("type_cooldown_s", {}).get(kind, self.cfg["cooldown_s"])
+
+    def _should_send(self, key, ts, cooldown=None):
         last = self._sent.get(key)
-        if last is not None and ts - last < self.cfg["cooldown_s"]:
+        if last is not None and ts - last < (self.cfg["cooldown_s"] if cooldown is None else cooldown):
             return False
         self._sent[key] = ts
         return True
