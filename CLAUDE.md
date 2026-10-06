@@ -352,6 +352,14 @@ Le dashboard (Caddy :443) appartient aux collègues.
 - Côté Windows, la synchronisation se connecte déjà par `https://127.0.0.1` (vue en `10.0.2.2`) : compatible. Reste la création du compte `SERVICE_VISION` par l'utilisateur, puis « → Windows : SERVICE_VISION prêt ».
 - Branche `firmware` : rien à fusionner (elle est en retard d'un commit sur `main`, `aa11b5e`).
 
+**→ Dashboard : choix de la caméra dans « Images de référence » (demandé par l'utilisateur, 6 oct.)**
+- Constat : sur le PC hôte, « Prendre une photo » renvoie « Caméra indisponible : Device in use ». Le navigateur prend par défaut la **webcam USB, occupée en permanence par la vision**. La caméra intégrée (« HP Wide Vision HD Camera ») est libre, mais on ne peut la choisir que dans les paramètres du navigateur.
+- Demande : une **liste déroulante des caméras** (`navigator.mediaDevices.enumerateDevices()`, filtre `kind === "videoinput"`), puis `getUserMedia({video: {deviceId: {exact: id}}})`.
+  - Les noms (`label`) ne sont donnés qu'après une première autorisation : demander d'abord l'accès, puis lister.
+  - Mémoriser le dernier choix (`localStorage`, avec `try/catch`).
+  - Si une caméra est occupée (`NotReadableError`), afficher « Caméra utilisée par un autre programme (la vision ?) : choisissez-en une autre » et laisser la liste active.
+- Rien à changer côté API ni Caddy (`camera=(self)` suffit). Faire `track.stop()` sur l'ancienne caméra quand on en change.
+
 ### Demandes à la session VM
 
 **→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :
