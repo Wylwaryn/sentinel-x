@@ -299,6 +299,35 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 
 **MQTT vision vérifié contre le vrai broker** (tunnel SSH, 5 octobre) : TLS et authentification OK ; télémétrie ESP vers vision (PIR) OK ; vidéo `sentinel/video/cam1` reçue par `dashboard` (5 images/s) OK ; vision ne reçoit pas `sentinel/cmd/+` et ne peut pas usurper `sentinel/telemetry`. Une seule connexion, `client_id = sentinel-vision`.
 
+## Dashboard : où en est la session dashboard (mis à jour par elle)
+
+**Fait (6 oct.), dans `dashboard/` uniquement : rien n'est modifié dans `server/`.** Conforme à `docs/fiche-api-dashboard.md`.
+- `dashboard/api/` : API FastAPI (même style que `server/ingest/` : psycopg, aiomqtt, pas de `/docs`, conteneur durci, uid 10002).
+  - Rôle `sentinel_dashboard`, requêtes paramétrées, alertes lues **uniquement via `v_alerte_supervision`** (jamais de `RESEAU_IA`).
+  - Connexion : Argon2id, jeton JWT dans un cookie `HttpOnly; Secure; SameSite=Strict`, compte relu en base à chaque requête, contrôle de `Origin`, anti force brute (5 échecs / 5 min → 429).
+  - Droits : LECTEUR lit ; OPERATEUR et ADMIN acquittent, résolvent, commandent buzzer/LED ; ADMIN gère les images de référence (volume `references`).
+  - Temps réel **sans polling** : `LISTEN sentinel_mesure / sentinel_alerte` → WebSocket `/ws` ; vidéo MQTT `sentinel/video/#` relayée en binaire.
+  - Commandes publiées sur `sentinel/cmd/<numero_serie>` au format du firmware (`actionneur`/`couleur`/`etat`/`duree_ms`, validé strictement).
+- `dashboard/web/` : interface React (Vite + Recharts) servie par **Caddy :443** (TLS 1.2+ ECDHE/AEAD, HSTS, CSP, pas d'en-tête Server). Heures affichées en Europe/Paris, bandeau rouge + son pour une alerte `CRITIQUE`.
+- `dashboard/docker-compose.yml` : services `dashboard` et `caddy` **ajoutés à la stack avec un `-f` en plus** (réseau `net_dashboard` existant, volume `captures` en lecture seule, nouveau réseau `net_web_edge` sans NAT sortant). L'API ne publie aucun port.
+- Comptes : `dashboard/api/add-user.sh` (mot de passe au clavier, haché dans le conteneur, inséré avec le compte admin PostgreSQL).
+- Point d'attention pour la VM : l'image dashboard crée `/data/captures` avec l'uid **10001** (ingestion). Sans ça, si le dashboard monte le volume `captures` en premier, Docker le donne à root et l'ingestion ne peut plus écrire les captures (bug vu et corrigé en test).
+
+**Testé sur Docker Desktop (Windows), avec la stack de `server/` telle quelle** :
+- `dashboard/api/tests/test_dashboard.sh` : **78 OK** (13 Caddy, 65 API : auth, rôles, temps réel < 1 s mesuré à ~10 ms, `RESEAU_IA` invisible, commandes reçues par un faux ESP, injections, images, droits PostgreSQL). Pile isolée `sentinel-test`, détruite à la fin.
+- `server/db/tests/test_droits.sh` sur base vierge : 39 OK (rien de cassé).
+- Bout en bout avec un faux ESP et une fausse vision contre l'API d'ingestion : mesures → courbes, vidéo, alerte `FUSION/INTRUSION` avec capture, `DISPOSITIF_HORS_LIGNE` levée par l'ingestion, acquittement vu en direct par un autre navigateur.
+- Non lancés ici (ils exigent sudo dans la VM) : `test_ingest.sh`, `test_mqtt.sh`.
+
+**→ VM : mise en service du dashboard** (détail dans `dashboard/README.md`) :
+1. `sudo pki/pki.sh server caddy 10003 DNS:sentinel-server,DNS:localhost,IP:127.0.0.1,IP:192.168.137.1`
+2. Ajouter à `server/.env` les 3 variables de `dashboard/.env.example` (`DASHBOARD_JWT_SECRET` à générer, `DASHBOARD_ORIGINS=https://192.168.137.1`, `CADDY_SNI=sentinel-server`).
+3. `sudo docker compose -f docker-compose.yml -f ../dashboard/docker-compose.yml up -d --build dashboard caddy`, puis `sudo ../dashboard/api/tests/test_dashboard.sh`.
+4. Décider avec l'utilisateur : garder le `-f` en plus, ou recopier les deux services dans `server/docker-compose.yml`.
+5. Comptes réels : `sudo ../dashboard/api/add-user.sh <email> "<nom>" <ROLE>`, lancé par l'utilisateur (mot de passe au clavier).
+
+**→ Windows : redirection NAT VirtualBox 443** (IP hôte vide, port hôte 443 → port invité 443). Pour éviter l'avertissement du navigateur pendant la démo : installer `certs/ca.crt` comme autorité de confiance sur le PC de démo.
+
 ## Pièges déjà rencontrés
 
 - `docker compose exec` et `ssh` lisent l'entrée standard : dans un script heredoc, ajouter `</dev/null`, sinon ils avalent la suite du script.
