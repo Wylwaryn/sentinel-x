@@ -1,0 +1,365 @@
+"""API dashboard Sentinel-X : lecture de la supervision physique, actions des opérateurs, temps réel.
+
+Derrière Caddy (seul point d'entrée, HTTPS/WSS :443) ; aucun port publié.
+  - REST  /api/v1/...   dispositifs, mesures, alertes, commandes, images de référence
+  - WS    /ws           mesures et alertes (LISTEN/NOTIFY), flux webcam (MQTT)
+"""
+import asyncio
+import logging
+import os
+import re
+import time
+import uuid
+from contextlib import asynccontextmanager
+from typing import Annotated, Literal
+
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse, Response
+from pydantic import BaseModel, ConfigDict, Field
+
+from . import config
+from .db import PERIODES, Database
+from .realtime import Client, Hub, MqttLink, PgListener
+from .security import (COOKIE, PEUT_ADMINISTRER, PEUT_AGIR, LoginLimiter, Tokens,
+                       verify_password)
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s : %(message)s")
+log = logging.getLogger("dashboard")
+
+settings = config.load()
+db = Database(settings)
+hub = Hub()
+listener = PgListener(db.conninfo, hub)
+mqtt = MqttLink(settings, hub)
+tokens = Tokens(settings.jwt_secret, settings.session_hours)
+limiter = LoginLimiter()
+
+SERIE_OK = re.compile(r"^[A-Za-z0-9_-]{1,64}$")            # jamais de + # / dans un topic MQTT
+FICHIER_OK = re.compile(r"^(captures|references)/[0-9a-f]{32}\.jpg$")
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    await db.open()
+    tasks = [asyncio.create_task(listener.run(), name="listen"),
+             asyncio.create_task(mqtt.run(), name="mqtt")]
+    log.info("API dashboard prête")
+    yield
+    for task in tasks:
+        task.cancel()
+    await db.close()
+
+
+# Pas de /docs ni d'/openapi.json : rien à cartographier pour les attaquants de jeudi.
+app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(_request, exc: RequestValidationError):
+    # Pas d'écho des valeurs reçues.
+    errors = [{"champ": ".".join(str(p) for p in e["loc"][1:]), "erreur": e["msg"]} for e in exc.errors()]
+    return JSONResponse(status_code=422, content={"detail": errors})
+
+
+def _origine_ok(origin: str | None) -> bool:
+    return not settings.allowed_origins or origin in settings.allowed_origins
+
+
+@app.middleware("http")
+async def garde(request: Request, call_next):
+    # Défense en plus du cookie SameSite=Strict : une requête qui modifie quelque chose
+    # doit venir de la page du dashboard elle-même.
+    if request.method not in ("GET", "HEAD") and not _origine_ok(request.headers.get("origin")):
+        return JSONResponse(status_code=403, content={"detail": "origine refusée"})
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+# ---------------------------------------------------------------- utilisateur connecté
+class Utilisateur(BaseModel):
+    id_utilisateur: int
+    nom: str
+    role: str
+
+
+async def _utilisateur(token: str | None) -> tuple[Utilisateur, int] | None:
+    lu = tokens.lire(token)
+    if lu is None:
+        return None
+    row = await db.utilisateur_par_id(lu[0])
+    if row is None or not row["actif"]:
+        return None
+    return Utilisateur(id_utilisateur=row["id_utilisateur"], nom=row["nom"], role=row["role"]), lu[1]
+
+
+async def connecte(request: Request) -> Utilisateur:
+    trouve = await _utilisateur(request.cookies.get(COOKIE))
+    if trouve is None:
+        raise HTTPException(401, "non connecté")
+    return trouve[0]
+
+
+async def operateur(u: Annotated[Utilisateur, Depends(connecte)]) -> Utilisateur:
+    if u.role not in PEUT_AGIR:
+        raise HTTPException(403, "réservé aux opérateurs")
+    return u
+
+
+async def admin(u: Annotated[Utilisateur, Depends(connecte)]) -> Utilisateur:
+    if u.role not in PEUT_ADMINISTRER:
+        raise HTTPException(403, "réservé aux administrateurs")
+    return u
+
+
+Connecte = Annotated[Utilisateur, Depends(connecte)]
+Operateur = Annotated[Utilisateur, Depends(operateur)]
+Admin = Annotated[Utilisateur, Depends(admin)]
+
+
+# ---------------------------------------------------------------- santé
+@app.get("/healthz")
+async def healthz():
+    try:
+        db_ok = await asyncio.wait_for(db.ping(), timeout=3)
+    except Exception:
+        db_ok = False
+    etat = {"db": db_ok, "listen": listener.connected, "mqtt": mqtt.connected}
+    return JSONResponse(status_code=200 if db_ok else 503, content={"status": "ok" if db_ok else "ko", **etat})
+
+
+# ---------------------------------------------------------------- authentification
+class LoginIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=1, max_length=256)
+
+
+@app.post("/api/v1/auth/login")
+async def login(body: LoginIn, request: Request):
+    ip = request.client.host if request.client else "?"
+    cles = (f"ip:{ip}", f"email:{body.email.strip().lower()}")
+    if limiter.bloque(*cles):
+        log.warning("connexion bloquée (trop d'échecs) depuis %s", ip)
+        raise HTTPException(429, "trop de tentatives, réessayez dans quelques minutes")
+
+    row = await db.utilisateur_par_email(body.email)
+    # Le hash est vérifié même si l'email est inconnu : même durée de réponse dans tous les cas.
+    ok = await asyncio.to_thread(verify_password, row["mot_de_passe_hash"] if row else None, body.password)
+    if not ok or not row["actif"]:
+        limiter.echec(*cles)
+        log.warning("échec de connexion depuis %s", ip)
+        raise HTTPException(401, "email ou mot de passe incorrect")
+
+    limiter.succes(*cles)
+    log.info("connexion de l'utilisateur %s (%s) depuis %s", row["id_utilisateur"], row["role"], ip)
+    utilisateur = {"id_utilisateur": row["id_utilisateur"], "nom": row["nom"], "role": row["role"]}
+    response = JSONResponse({"utilisateur": utilisateur})
+    response.set_cookie(COOKIE, tokens.emettre(row["id_utilisateur"]), max_age=tokens.ttl, path="/",
+                        httponly=True, secure=settings.cookie_secure, samesite="strict")
+    return response
+
+
+@app.post("/api/v1/auth/logout")
+async def logout():
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(COOKIE, path="/", httponly=True, secure=settings.cookie_secure, samesite="strict")
+    return response
+
+
+@app.get("/api/v1/auth/me")
+async def moi(u: Connecte):
+    return {"utilisateur": u.model_dump()}
+
+
+# ---------------------------------------------------------------- dispositifs et mesures
+@app.get("/api/v1/dispositifs")
+async def dispositifs(_u: Connecte):
+    return await db.dispositifs()
+
+
+@app.get("/api/v1/dispositifs/{id_dispositif}/mesures")
+async def mesures(id_dispositif: int, _u: Connecte, minutes: int = 15):
+    if minutes not in PERIODES:
+        raise HTTPException(422, f"période possible : {sorted(PERIODES)} minutes")
+    return await db.mesures(id_dispositif, minutes)
+
+
+class Buzzer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actionneur: Literal["buzzer"]
+    etat: Literal["on", "off"]
+    duree_ms: int = Field(default=3000, ge=100, le=10000)   # l'ESP plafonne aussi à 10 s
+
+
+class Led(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actionneur: Literal["led"]
+    couleur: Literal["rouge", "vert"]
+    etat: Literal["on", "off", "clignote"]
+
+
+class CommandeIn(BaseModel):
+    commande: Buzzer | Led = Field(discriminator="actionneur")
+
+
+@app.post("/api/v1/dispositifs/{id_dispositif}/commandes", status_code=202)
+async def commande(id_dispositif: int, body: CommandeIn, u: Operateur):
+    serie = await db.numero_serie(id_dispositif)
+    if serie is None:
+        raise HTTPException(404, "dispositif inconnu")
+    if not SERIE_OK.match(serie):
+        raise HTTPException(409, "numéro de série inutilisable comme topic MQTT")
+    payload = body.commande.model_dump(exclude={"duree_ms"} if body.commande.etat == "off" else None)
+    if not await mqtt.commande(serie, payload):
+        raise HTTPException(503, "broker MQTT indisponible")
+    log.info("commande %s vers %s par l'utilisateur %s", payload, serie, u.id_utilisateur)
+    return {"envoyee": payload, "topic": f"sentinel/cmd/{serie}"}
+
+
+# ---------------------------------------------------------------- alertes
+@app.get("/api/v1/alertes")
+async def alertes(_u: Connecte, toutes: bool = False, limite: int = Query(50, ge=1, le=200)):
+    return await db.alertes(ouvertes=not toutes, limite=limite)
+
+
+async def _changer_statut(id_alerte: int, fait: bool):
+    if fait:
+        return {"ok": True}
+    if not await db.alerte_existe(id_alerte):
+        raise HTTPException(404, "alerte inconnue")
+    raise HTTPException(409, "statut déjà changé")
+
+
+@app.post("/api/v1/alertes/{id_alerte}/acquitter")
+async def acquitter(id_alerte: int, u: Operateur):
+    fait = await db.acquitter(id_alerte)
+    if fait:
+        log.info("alerte %s acquittée par l'utilisateur %s", id_alerte, u.id_utilisateur)
+    return await _changer_statut(id_alerte, fait)
+
+
+@app.post("/api/v1/alertes/{id_alerte}/resoudre")
+async def resoudre(id_alerte: int, u: Operateur):
+    fait = await db.resoudre(id_alerte, u.id_utilisateur)
+    if fait:
+        log.info("alerte %s résolue par l'utilisateur %s", id_alerte, u.id_utilisateur)
+    return await _changer_statut(id_alerte, fait)
+
+
+def _fichier(chemin: str | None) -> FileResponse:
+    # Le chemin vient de la base, mais on ne lui fait pas confiance : format strict, pas de « .. ».
+    if not chemin or not FICHIER_OK.match(chemin):
+        raise HTTPException(404, "image absente")
+    dossier, nom = chemin.split("/")
+    base = settings.captures_dir if dossier == "captures" else settings.references_dir
+    chemin_local = os.path.join(base, nom)
+    if not os.path.isfile(chemin_local):
+        raise HTTPException(404, "image absente")
+    return FileResponse(chemin_local, media_type="image/jpeg")
+
+
+@app.get("/api/v1/alertes/{id_alerte}/capture")
+async def capture(id_alerte: int, _u: Connecte):
+    return _fichier(await db.chemin_capture(id_alerte))
+
+
+# ---------------------------------------------------------------- images de référence (ADMIN)
+@app.get("/api/v1/utilisateurs")
+async def utilisateurs(_u: Admin):
+    return await db.utilisateurs()
+
+
+@app.get("/api/v1/images-reference")
+async def images_reference(_u: Admin):
+    return await db.images_reference()
+
+
+@app.post("/api/v1/images-reference", status_code=201)
+async def ajouter_image(request: Request, u: Admin, id_utilisateur: int):
+    """Corps = l'image JPEG brute (Content-Type: image/jpeg). Le nom du fichier est choisi par le serveur."""
+    if request.headers.get("content-type") != "image/jpeg":
+        raise HTTPException(415, "JPEG uniquement (Content-Type: image/jpeg)")
+    jpeg = bytearray()
+    async for morceau in request.stream():
+        jpeg += morceau
+        if len(jpeg) > settings.max_image_bytes:
+            raise HTTPException(413, "image trop volumineuse")
+    if not jpeg.startswith(b"\xff\xd8\xff"):
+        raise HTTPException(422, "ce n'est pas un JPEG")
+
+    nom = f"{uuid.uuid4().hex}.jpg"
+    await asyncio.to_thread(_ecrire, os.path.join(settings.references_dir, nom), bytes(jpeg))
+    try:
+        id_image = await db.ajouter_image(id_utilisateur, u.id_utilisateur, f"references/{nom}")
+    except Exception:
+        os.remove(os.path.join(settings.references_dir, nom))
+        raise HTTPException(422, "utilisateur inconnu")
+    log.info("image de référence %s ajoutée pour l'utilisateur %s par %s", id_image, id_utilisateur, u.id_utilisateur)
+    return {"id_image_reference": id_image}
+
+
+def _ecrire(chemin: str, contenu: bytes):
+    # « x » : jamais d'écrasement d'un fichier existant.
+    with open(chemin, "xb") as f:
+        f.write(contenu)
+
+
+class ActiveIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    active: bool
+
+
+@app.patch("/api/v1/images-reference/{id_image}")
+async def activer_image(id_image: int, body: ActiveIn, u: Admin):
+    if not await db.activer_image(id_image, body.active):
+        raise HTTPException(404, "image inconnue")
+    log.info("image de référence %s active=%s par %s", id_image, body.active, u.id_utilisateur)
+    return {"ok": True}
+
+
+@app.get("/api/v1/images-reference/{id_image}/fichier")
+async def fichier_image(id_image: int, _u: Admin):
+    return _fichier(await db.chemin_image(id_image))
+
+
+# ---------------------------------------------------------------- WebSocket
+@app.websocket("/ws")
+async def websocket(ws: WebSocket):
+    await ws.accept()
+    if not _origine_ok(ws.headers.get("origin")):
+        return await ws.close(code=4403)
+    trouve = await _utilisateur(ws.cookies.get(COOKIE))
+    if trouve is None:
+        # 4401 : le dashboard revient à l'écran de connexion.
+        return await ws.close(code=4401)
+    if hub.plein():
+        return await ws.close(code=1013)
+    utilisateur, expiration = trouve
+
+    client = Client(ws)
+
+    async def lire():
+        # Le navigateur n'envoie rien d'utile : on lit seulement pour voir la déconnexion.
+        while (await ws.receive())["type"] != "websocket.disconnect":
+            pass
+
+    async def expirer():
+        await asyncio.sleep(max(0, expiration - time.time()))
+
+    taches = [asyncio.create_task(hub.servir(client)), asyncio.create_task(lire()),
+              asyncio.create_task(expirer())]
+    fini, _ = await asyncio.wait(taches, return_when=asyncio.FIRST_COMPLETED)
+    for t in taches:
+        t.cancel()
+    for t in fini:
+        t.exception()  # envoi vers un navigateur déjà parti : attendu, rien à signaler
+    try:
+        if taches[2] in fini:
+            await ws.close(code=4401)   # session expirée
+        elif client.trop_lent:
+            await ws.close(code=1013)
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+    log.debug("WebSocket fermé pour l'utilisateur %s", utilisateur.id_utilisateur)
