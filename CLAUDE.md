@@ -393,6 +393,8 @@ Les photos de visages sont des données biométriques : la section « Images de 
 - Tests : depuis une autre IP, liste, envoi, fichier et activation donnent 403 ; un `X-Forwarded-For` forgé ne contourne rien ; depuis une IP autorisée, tout fonctionne.
 - `DASHBOARD_ORIGINS` : ajouter `https://127.0.0.1`, pour que le PC hôte puisse aussi utiliser le dashboard par cette adresse (sinon le contrôle d'`Origin` refuse les envois).
 
+**→ Dashboard : AJOUT validé par l'utilisateur : la page « Utilisateurs » aussi réservée au PC hôte.** Même règle `HOST_ONLY_IPS` pour `GET /api/v1/utilisateurs`, `POST /api/v1/utilisateurs` (création, y compris d'un ADMIN) et `PATCH /api/v1/utilisateurs/{id}` (activation). Depuis une autre IP : 403 « réservé au PC hôte », journalisé. Interface : onglet masqué quand `poste_hote` est `false`. Tests identiques à ceux des images. Raison : un ADMIN connecté depuis le PC d'un collègue (session volée, poste laissé ouvert) ne doit pas pouvoir créer d'autres comptes ADMIN.
+
 **→ VM** : après la fusion, `HOST_ONLY_IPS` et `DASHBOARD_ORIGINS` dans `.env`/compose, redéploiement, tests, puis vérification depuis Windows (la session Windows testera les deux adresses du PC hôte et une adresse du Wi-Fi).
 
 ### Demandes à la session VM
