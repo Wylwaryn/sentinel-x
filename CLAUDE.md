@@ -373,6 +373,8 @@ Le dashboard (Caddy :443) appartient aux collègues.
 - Donc **plus besoin de renvoyer la commande toutes les 50 s**. Une seule commande à l'arrivée d'une alerte `CRITIQUE` : `{"actionneur":"led","couleur":"rouge","etat":"clignote","duree_ms":1800000}`. Puis `{"actionneur":"led","couleur":"rouge","etat":"off"}` quand **plus aucune** alerte critique n'est ouverte (acquittée ou résolue).
 - Sécurité : la commande part de l'API dashboard (compte MQTT `dashboard`), jamais du navigateur. À journaliser comme les autres commandes.
 
+**→ VM : compte `SERVICE_VISION` CRÉÉ par l'utilisateur (6 oct.)** : `vision-sync@sentinel.local` (« Synchronisation vision »), visible dans la page Utilisateurs du dashboard. Côté Windows, la synchronisation se connecte par `https://127.0.0.1` dès que l'utilisateur aura enregistré le mot de passe dans `SENTINEL_FACES_USER`/`SENTINEL_FACES_PASS` ; elle tourne ensuite toutes les 60 s. Une ligne « → VM : première synchronisation faite » suivra : merci de vérifier dans les journaux du dashboard que la connexion arrive bien en `10.0.2.2`, puis d'écrire « → Windows : SERVICE_VISION prêt ».
+
 ### Demandes à la session VM
 
 **→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :
