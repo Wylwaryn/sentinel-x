@@ -9,6 +9,9 @@ export MSYS_NO_PATHCONV=1   # Git Bash (Windows) : ne pas réécrire les chemins
 cd "$(dirname "$0")/../../../server"
 docker info >/dev/null 2>&1 || { echo "Docker inaccessible (lancer avec sudo dans la VM)." >&2; exit 1; }
 
+# Le scénario parle à l'API en direct (127.0.0.1, dans son conteneur) : c'est son « PC hôte ».
+# Tout ce qui passe par Caddy a l'IP du conteneur de test, donc hors liste.
+export SERVICE_VISION_IPS=127.0.0.1
 export COMPOSE_ARGS="-p sentinel-test -f docker-compose.yml -f docker-compose.test.yml -f ../dashboard/docker-compose.yml -f ../dashboard/docker-compose.test.yml"
 DC=(docker compose $COMPOSE_ARGS)
 NET=sentinel-test_net_dashboard
@@ -42,8 +45,9 @@ for role in ADMIN OPERATEUR LECTEUR; do
         || ko "création du compte $role"
 done
 SENTINEL_PASSWORD=$PASSWORD ../dashboard/api/add-user.sh "inactif@test.local" "Compte désactivé" OPERATEUR </dev/null >/dev/null
+SENTINEL_PASSWORD=$PASSWORD ../dashboard/api/add-user.sh "service@test.local" "Synchronisation vision" SERVICE_VISION </dev/null >/dev/null     || ko "création du compte SERVICE_VISION (terminal)"
 sql "UPDATE utilisateur SET actif = false WHERE email = 'inactif@test.local'"
-check "$(sql "SELECT count(*) FROM utilisateur WHERE mot_de_passe_hash LIKE '\$argon2id\$%'")" 4 "mots de passe hachés en Argon2id"
+check "$(sql "SELECT count(*) FROM utilisateur WHERE mot_de_passe_hash LIKE '\$argon2id\$%'")" 5 "mots de passe hachés en Argon2id"
 
 envval() { grep -E "^$1=" .env | tail -n1 | cut -d= -f2-; }
 
@@ -68,7 +72,27 @@ check "$("${CURL[@]}" -o /dev/null -w '%{http_code}' $URL/healthz)" 200 "route i
 check "$(docker exec "$C" curl -s -o /dev/null -w '%{http_code}' http://caddy:8443/)" 400 "HTTP en clair refusé"
 check "$(docker exec "$C" curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://dashboard:8000/healthz)" 200 \
     "API joignable seulement sur le réseau interne (aucun port publié)"
-check "$("${DC[@]}" port dashboard 8000 2>/dev/null)" "" "aucun port publié pour l'API"
+# docker compose port renvoie "" (Docker Desktop) ou ":0" (Compose v5 dans la VM) : on lit la config du conteneur.
+check "$(docker inspect "$("${DC[@]}" ps -q dashboard)" --format '{{json .HostConfig.PortBindings}}')" "{}" "aucun port publié pour l'API"
+
+echo "== IP réelle derrière Caddy =="
+IP_TESTEUR=$(docker inspect "$C" --format "{{(index .NetworkSettings.Networks \"$NET\").IPAddress}}")
+# login <email> <mot de passe> [en-tête en plus] : code HTTP d'une connexion passée par Caddy
+login() {
+    printf '{"email":"%s","password":"%s"}' "$1" "$2" | docker exec -i "$C" sh -c 'cat > /tmp/login'
+    "${CURL[@]}" -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
+        -H "Origin: $(envval DASHBOARD_ORIGINS | cut -d, -f1)" ${3:+-H "$3"} --data-binary @/tmp/login $URL/api/v1/auth/login
+}
+check "$(login service@test.local "$PASSWORD")" 403 "SERVICE_VISION depuis une autre machine que le PC hôte : 403"
+check "$(login service@test.local "$PASSWORD" 'X-Forwarded-For: 127.0.0.1')" 403 \
+    "X-Forwarded-For forgé (IP autorisée) : toujours 403, Caddy l'écrase"
+"${DC[@]}" logs dashboard 2>/dev/null | grep -q "refusée depuis $IP_TESTEUR " \
+    && ok "journal : IP réelle du client ($IP_TESTEUR), pas celle de Caddy" || ko "IP réelle absente du journal"
+for i in 1 2 3 4 5 6; do
+    DERNIER=$(login "inconnu$i@test.local" "mauvais-mot-de-passe" "X-Forwarded-For: 10.0.2.$i")
+done
+check "$DERNIER" 429 "force brute bloquée par IP réelle, même en changeant de X-Forwarded-For"
+# Le scénario ci-dessous se connecte ensuite depuis une autre IP : le blocage ne touche que l'attaquant.
 
 echo "== Scénario API (dans le conteneur dashboard) =="
 ORIGIN=$(envval DASHBOARD_ORIGINS | cut -d, -f1)

@@ -544,3 +544,31 @@ button.badge {
 .vignettes .inactive {
   opacity: 0.4;
 }
+
+/* Utilisateurs (ADMIN) */
+.compte {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--bordure);
+  border-radius: 6px;
+}
+
+.compte.inactive {
+  opacity: 0.5;
+}
+
+.compte .alerte-actions {
+  margin: 0;
+}
+
+/* Prise de photo de référence */
+.prise-photo {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 480px;
+  margin-bottom: 12px;
+}

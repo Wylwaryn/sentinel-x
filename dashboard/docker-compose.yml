@@ -26,6 +26,8 @@ services:
       MQTT_PASSWORD: ${MQTT_DASHBOARD_PASSWORD:?lancer sudo mosquitto/gen-passwd.sh}
       DASHBOARD_JWT_SECRET: ${DASHBOARD_JWT_SECRET:?voir dashboard/.env.example}
       DASHBOARD_ORIGINS: ${DASHBOARD_ORIGINS:-}
+      # Compte SERVICE_VISION accepté seulement depuis ces IP (PC hôte = passerelle NAT VirtualBox)
+      SERVICE_VISION_IPS: ${SERVICE_VISION_IPS:-10.0.2.2}
     volumes:
       - ./certs/ca.crt:/certs/ca.crt:ro
       # Captures des alertes caméra écrites par l'API d'ingestion : lecture seule.

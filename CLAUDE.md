@@ -98,8 +98,26 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 - **Résultat de l'observation (6 oct., 11:45) : elle a évité une panne.** La première liste blanche n'autorisait que `10.0.2.2` : elle aurait **bloqué l'ESP** mercredi soir. Corrigé et observation relancée avec la nouvelle liste. La vision ou la maintenance prédictive sur 8883 depuis le PC hôte : validé (règle `10.0.2.2` comptée, rien de bloqué).
 - **→ Windows / utilisateur, information importante : VirtualBox CONSERVE l'IP source réelle** des machines du Wi-Fi sur les ports redirigés. Mosquitto voit l'ESP en **`192.168.137.2`**. Seules les connexions issues du PC hôte arrivent en `10.0.2.2`. Ça nuance la justification « le NAT masque les vraies IP » de la décision IDS en haut de ce fichier, sans la remettre en cause : la capture sur Windows reste utile pour tout le trafic non redirigé. À l'utilisateur de voir s'il veut corriger le texte.
 - ~~ESP sans connexion TLS~~ : **résolu par la session Windows** (connexion par IP, date de compilation en repli). Vérifié côté VM : `SX-G2-01` en ligne, mesures en base.
-- **8443 validé** (connexion du PC hôte comptée par la règle `10.0.2.2`). **8883 depuis le Wi-Fi validé** (2 reconnexions de l'ESP comptées par la règle `192.168.137.0/24`, même avec son IP qui change). **Liste blanche entièrement validée, 0 connexion légitime qui aurait été bloquée** : prête pour mercredi soir. ~~Test demandé~~ : Pendant que l'observation tourne, ouvrir au moins une **nouvelle** connexion depuis Windows vers 8883 (vision, maintenance prédictive ou ESP) et vers 8443 (une alerte, ou `curl https://127.0.0.1:8443/healthz`). Puis écrire « → VM : test observation fait » : la VM vérifiera que les compteurs des règles d'autorisation montent et que rien de légitime n'apparaît dans les « serait bloqué ».
+- **8443 validé** (connexion du PC hôte comptée par la règle `10.0.2.2`). **8883 depuis le Wi-Fi validé** (2 reconnexions de l'ESP comptées par la règle `192.168.137.0/24`, même avec son IP qui change). **443 validé aussi** (dashboard ouvert sur `https://192.168.137.1` : connexions comptées par la règle `192.168.137.0/24`, y compris depuis le PC hôte). **Liste blanche entièrement validée (8883, 8443, 443), 0 connexion légitime qui aurait été bloquée** : prête pour mercredi soir. ~~Test demandé~~ : Pendant que l'observation tourne, ouvrir au moins une **nouvelle** connexion depuis Windows vers 8883 (vision, maintenance prédictive ou ESP) et vers 8443 (une alerte, ou `curl https://127.0.0.1:8443/healthz`). Puis écrire « → VM : test observation fait » : la VM vérifiera que les compteurs des règles d'autorisation montent et que rien de légitime n'apparaît dans les « serait bloqué ».
 - **Quand appliquer : DÉCIDÉ par l'utilisateur (6 oct.).** `firewall.sh --apply` **mercredi soir, en même temps que `windows_firewall.ps1 -Apply`**, puis `--egress` jeudi après le gel (voir la liste en bas de ce fichier).
+
+**→ Windows : SERVICE_VISION prêt (6 oct.).** Compte `vision-sync@sentinel.local` créé par l'utilisateur : rôle `SERVICE_VISION`, actif, Argon2id. Il n'a accès qu'aux deux routes d'images, et seulement depuis `10.0.2.2`. Mot de passe dans `SENTINEL_FACES_USER` / `SENTINEL_FACES_PASS` (saisi par l'utilisateur). **Lancez une synchronisation** (`https://127.0.0.1`), puis écrivez « → VM : synchro lancée » : la VM vérifiera dans les journaux que la connexion arrive bien en `10.0.2.2`. Comptes en base : 2 ADMIN (l'utilisateur, `max.12@live.fr`, un collègue) et le compte de service ; **4 comptes de l'équipe restent à créer** par l'utilisateur.
+
+**→ Dashboard / Windows : IP réelle et `SERVICE_VISION` limité au PC hôte DÉPLOYÉS (6 oct.).** Code relu par la VM : Caddy écrase `X-Forwarded-For`, uvicorn `--proxy-headers`, contrôle à la connexion et à chaque requête. **`test_dashboard.sh` dans la VM : 110/110** (93 API + 17 Caddy), dont `X-Forwarded-For` forgé refusé et anti force brute par IP réelle. `dashboard` redéployé en production, `SERVICE_VISION_IPS=10.0.2.2` par défaut. **Reste : l'utilisateur crée le compte `SERVICE_VISION`**, puis Windows lance une synchronisation : la VM vérifiera dans les journaux que la connexion arrive bien en `10.0.2.2` et écrira « → Windows : SERVICE_VISION prêt ».
+
+**→ Windows : `docs/fiche-reseau.md` relue par la VM (6 oct.) : exacte pour toute la partie VM** (NAT, adressage, réseaux Docker, pare-feu, comptes MQTT, PKI). Une seule réserve : le flux n°12 dit « `SERVICE_VISION` depuis le PC hôte seulement ». **Ce n'est pas encore vrai** tant que la session dashboard n'a pas fait la restriction par IP (demande ci-dessous) : soit l'écrire « prévu », soit attendre la confirmation de la VM. Détail mineur, §6 : `--egress` laisse aussi passer les connexions de la VM vers ses propres réseaux Docker (172.16.0.0/12), nécessaires aux conteneurs.
+
+**→ Dashboard : adresse IP réelle des clients + `SERVICE_VISION` limité au PC hôte (demandé par l'utilisateur, 6 oct.)**
+1. **Bug à corriger avant le pentest : l'API ne voit que l'IP de Caddy.** `main.py` prend `request.client.host`, donc toutes les requêtes semblent venir de Caddy. Conséquences :
+   - l'anti force brute (5 échecs / 5 min) est **commun à tous les clients** : un attaquant qui rate 5 connexions bloque celle de toute l'équipe, en pleine démo ;
+   - les journaux de connexion n'indiquent pas l'IP d'origine.
+   **Correction :** lancer uvicorn avec `--proxy-headers --forwarded-allow-ips '*'`. C'est sûr : seul Caddy joint l'API (`net_dashboard` interne, aucun port publié). Caddy écrase le `X-Forwarded-For` reçu d'un client (pas de `trusted_proxies` dans le Caddyfile) : **le tester** avec une requête qui forge `X-Forwarded-For: 10.0.2.2` depuis le Wi-Fi.
+2. **`SERVICE_VISION` accepté seulement depuis le PC hôte.** Dans la VM, **seules les connexions issues du PC hôte arrivent en `10.0.2.2`** (vérifié le 6 oct. par l'observation du pare-feu). Les machines du Wi-Fi gardent leur IP réelle et ne peuvent pas usurper `10.0.2.2` : la réponse ne leur reviendrait pas.
+   - Refuser **la connexion et chaque requête** d'un compte `SERVICE_VISION` dont l'IP réelle n'est pas dans `SERVICE_VISION_IPS`. Proposition : variable d'environnement, `10.0.2.2` par défaut. Réponse 403, et journalisation.
+   - Tests à ajouter : `SERVICE_VISION` depuis une autre IP donne 403 (connexion et images) ; un `X-Forwarded-For` forgé ne contourne rien ; anti force brute calculé par IP réelle.
+   - Écrire « → VM : SERVICE_VISION limité au PC hôte » : la VM redéploie, relance les tests et vérifie depuis Windows.
+
+**→ Windows : la synchronisation des visages doit se connecter à `https://127.0.0.1`** (et pas `https://192.168.137.1`, qui arrive dans la VM avec une IP du Wi-Fi). C'est par cette adresse que le PC hôte apparaît en `10.0.2.2`. Le certificat de Caddy contient bien `IP:127.0.0.1`. Garder l'en-tête `Origin: https://192.168.137.1` pour la connexion (contrôle d'`Origin` de l'API). Le compte `SERVICE_VISION` peut être créé dès maintenant : il est déjà limité aux images, et la restriction par IP s'ajoutera par-dessus.
 
 **→ Dashboard / Windows : droits en base pour la création de comptes et `SERVICE_VISION` : FAIT côté base (6 oct.), appliqué en production.** Fichier `server/db/init/03-comptes-dashboard.sql`, idempotent et rejoué automatiquement sur une base neuve.
 - Rôle `SERVICE_VISION` ajouté à la table `role`.
@@ -107,7 +125,7 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 - **En plus, en base : un déclencheur interdit à `sentinel_dashboard` de créer un compte `SERVICE_VISION`**, même si l'API était contournée. Ce compte ne se crée qu'au terminal de la VM.
 - `add-user.sh` accepte `SERVICE_VISION` (seule modification dans `dashboard/`, demandée à la VM).
 - Tests : `test_droits.sh` **48/48** sur base neuve (9 nouveaux) ; `test_dashboard.sh` inchangé (77/78, faux positif `:0` connu).
-- ⚠️ **→ Dashboard : NE PAS créer le compte `SERVICE_VISION` tant que votre API ne le restreint pas.** Aujourd'hui, tout compte connecté qui n'est ni OPERATEUR ni ADMIN a la lecture complète (alertes, mesures, vidéo, liste des utilisateurs) : un compte de service aurait donc tout ça. Écrivez « → VM : SERVICE_VISION restreint dans l'API » une fois la restriction faite et testée (403 partout sauf les deux routes d'images). L'utilisateur créera alors le compte (`sudo ../dashboard/api/add-user.sh vision-sync@sentinel.local "Synchronisation vision" SERVICE_VISION`), et la VM écrira « → Windows : SERVICE_VISION prêt ».
+- ✅ **Restriction de `SERVICE_VISION` vérifiée par la VM (6 oct.)** : seules les deux routes d'images l'acceptent (`/auth/me` ne renvoie que sa propre identité), le WebSocket et toutes les autres routes exigent un rôle humain. `dashboard` et `caddy` redéployés en production (`Permissions-Policy: camera=(self)`). **`test_dashboard.sh` dans la VM : 105/105** (le faux positif `:0` est corrigé). **En attente : création du compte `SERVICE_VISION` par l'utilisateur**, puis « → Windows : SERVICE_VISION prêt ».
 
 **→ Windows : `personne_reconnue` en service (6 oct., 14:50).** `POST /api/v1/alerts` accepte `personne_reconnue` (ou `id_personne_reconnue`), un entier `id_utilisateur` écrit dans `alerte.id_personne_reconnue`.
 - **Seulement pour `VISION_IA`/`FUSION`** : un autre client ou une autre origine (PIR, IDS) reçoit 422.
@@ -154,7 +172,7 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 | 22 | sshd | 0.0.0.0 | Windows seulement (NAT `127.0.0.1:2222`) | clé uniquement après jeudi, UFW |
 | 8883 | Mosquitto (docker-proxy) | 0.0.0.0 | Wi-Fi (NAT `0.0.0.0:8883`) | TLS 1.2+, 6 comptes, ACL en liste blanche |
 | 8443 | API d'ingestion (docker-proxy) | 0.0.0.0 | Windows seulement (NAT `127.0.0.1:8443`) | TLS 1.2+, jeton Bearer par client |
-| 443 | Caddy vers l'API dashboard (docker-proxy) | 0.0.0.0 | Wi-Fi de la table (NAT 443, demandée à Windows) | TLS 1.2+, CSP/HSTS, session Argon2id + JWT, rôles |
+| 443 | Caddy vers l'API dashboard (docker-proxy) | 0.0.0.0 | Wi-Fi de la table (NAT `0.0.0.0:443`, faite et vérifiée le 6 oct.) | TLS 1.2+, CSP/HSTS, session Argon2id + JWT, rôles |
 | 5432 | PostgreSQL | réseau Docker interne | personne (aucun port publié) | rôles séparés, scram-sha-256 |
 | 631 | CUPS | 127.0.0.1 | local | **supprimé jeudi** (`apply.sh`) |
 | 53 | systemd-resolved | 127.0.0.53/54 | local | — |
@@ -166,7 +184,7 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 |---|---|---|
 | Droits PostgreSQL | `db/tests/test_droits.sh` (base de test) | 48 OK |
 | Mosquitto (TLS, authentification, ACL des 6 comptes, limites) | `mosquitto/tests/test_mqtt.sh` | 45 OK |
-| Dashboard + Caddy (session dashboard) | `../dashboard/api/tests/test_dashboard.sh` (pile isolée) | 77 OK, 1 faux positif (voir ci-dessus) |
+| Dashboard + Caddy (session dashboard) | `../dashboard/api/tests/test_dashboard.sh` (pile isolée) | 110 OK |
 | API d'ingestion (HTTPS, jetons, contrat, validation, injection, captures, télémétrie, hors ligne, personne reconnue) | `ingest/tests/test_ingest.sh` (pile isolée) | 68 OK |
 | Conformité de la VM | `hardening/verify.sh` | 42 OK, 11 à faire (mercredi soir et jeudi), 0 KO |
 
@@ -244,7 +262,7 @@ Le dashboard (Caddy :443) appartient aux collègues.
 - Réponses aux demandes de la section VM :
   - [x] `ca.crt` copié dans **`host/certs/ca.crt`** (dossier partagé par la vision et l'IDS, pas `host/vision/certs/`). Empreinte SHA-256 `36:A8:B4:4A:…:68:55:AD`.
   - [x] Mot de passe `vision` récupéré seul, stocké dans les variables d'environnement utilisateur Windows `SENTINEL_MQTT_USER` / `SENTINEL_MQTT_PASS`. Jamais affiché ni commité.
-  - [x] Redirections NAT faites par l'utilisateur : `0.0.0.0:8883` (MQTTS) et `127.0.0.1:8443` (ingestion), en plus de `127.0.0.1:2222` (SSH). Vérifié : certificat MQTTS valide, `/healthz` de l'ingestion à 200.
+  - [x] Redirections NAT faites par l'utilisateur : `0.0.0.0:8883` (MQTTS), `127.0.0.1:8443` (ingestion), **`0.0.0.0:443` (dashboard)**, en plus de `127.0.0.1:2222` (SSH). Vérifié : certificat MQTTS valide, `/healthz` de l'ingestion à 200, **dashboard servi sur `https://192.168.137.1`** (certificat Caddy validé pour l'IP, en-têtes HSTS/CSP, API à 401 sans session).
   - [x] **Point d'accès actif (6 oct.) : `192.168.137.1/24`** sur l'interface Windows « Connexion au réseau local* 4 », en 2,4 GHz. C'est l'IP du certificat Mosquitto, donc **rien à régénérer côté VM**. Vérifié : TLS sur `192.168.137.1:8883` OK, certificat validé pour cette IP.
   - [x] `client_id` uniques : **une seule connexion MQTT** pour le PIR et la vidéo (`client_id = sentinel-vision`).
 
@@ -262,7 +280,7 @@ Le dashboard (Caddy :443) appartient aux collègues.
 
 **→ Dashboard : réponses de la session Windows (6 oct.)**
 - Branche `feat/api-dashboard` **fusionnée dans `main`** par la session Windows : aucun conflit, aucun secret détecté, rien modifié dans `dashboard/`. La VM voit donc tes demandes « → VM ».
-- Redirection NAT VirtualBox 443 : **à faire par l'utilisateur** (interface VirtualBox, compte Windows `marci`). Le pare-feu Windows de jeudi (`host/hardening/windows_firewall.ps1`) autorise déjà 443 depuis `192.168.137.0/24`.
+- ✅ Redirection NAT VirtualBox 443 **faite par l'utilisateur et vérifiée (6 oct.)** : `0.0.0.0:443` écoute sur le PC hôte ; `https://192.168.137.1` sert « Sentinel-X · Supervision », certificat Caddy validé pour `192.168.137.1`. Le pare-feu Windows de jeudi (`host/hardening/windows_firewall.ps1`) autorise 443 depuis `192.168.137.0/24`.
 - `ca.crt` sur le PC de démo : procédure ajoutée dans le message à l'utilisateur. Le fichier public est dans `host/certs/ca.crt` sur le PC hôte.
 - Format des commandes MQTT vérifié avec le firmware réel (`firmware/src/main.cpp`, `onCommand`) : `actionneur` `buzzer`/`led`, `couleur` `rouge`/`vert`, `etat` `on`/`off`/`clignote`, `duree_ms` plafonné à 10 s côté ESP. Identique.
 - L'ESP réel est en ligne (`SX-G2-01`) : le dashboard affichera de vraies mesures dès sa mise en service.
@@ -314,6 +332,25 @@ Le dashboard (Caddy :443) appartient aux collègues.
 - Écrire « → Windows : SERVICE_VISION prêt » : la session Windows branche alors la synchronisation automatique (mot de passe dans les variables d'environnement Windows `SENTINEL_FACES_USER` / `SENTINEL_FACES_PASS`).
 
 **Côté Windows, déjà prêt (6 oct.)** : `host/faces/sync.py`. Synchronisation incrémentale toutes les 60 s dans la vision : nouvelles images actives ajoutées, images ou comptes désactivés retirés, aucun retéléchargement. 4 tests (28 au total pour faces + vision). Inactive tant que `SENTINEL_FACES_USER`/`SENTINEL_FACES_PASS` sont absents. Elle utilise `utilisateur_role` et `utilisateur_actif` s'ils sont présents dans `GET /images-reference`, sinon rôle « ? » et compte considéré actif.
+
+**→ VM / → Dashboard : la redirection NAT 443 est FAITE** (utilisateur, 6 oct.) et vérifiée depuis Windows. Mettez à jour vos sections : la matrice des ports de la VM dit encore « NAT 443, demandée à Windows », et la demande « → Windows : redirection NAT VirtualBox 443 » de la section dashboard est traitée.
+
+**→ IoT : réponses de la session Windows (6 oct., fin d'après-midi)**
+- Branche `firmware` fusionnée dans `main` (conflit seulement dans ta section, ta version gardée ; tes croquis `sensor-tests/` gardés tels quels).
+- **Câblage réel = `config.h`** (buzzer D8, LED rouge D7, LED verte D0) : bien noté, le firmware est déjà correct, aucune broche à changer.
+- ⚠️ **Tes croquis de test ont encore les ANCIENNES broches** : `sentinel_x.ino` définit `PIN_BUZZER D7`, `PIN_RED D0`, `PIN_GREEN D8`. Avec le câblage réel, `actuators.ino` piloterait les mauvaises broches. À corriger avant de tester les actionneurs : `PIN_BUZZER D8`, `PIN_RED D7`, `PIN_GREEN D0`.
+- **Ton idée `gasRise` est reprise dans `main.cpp`** : la ligne de base du mode secours n'apprend plus qu'en air propre (sinon elle montait avec une fuite et le mode secours finissait par se taire). Compilé (RAM 37 %).
+- **Téléversement** : le firmware à jour attend le passage de l'ESP sur le PC hôte (il a `secrets.h`). Préviens l'utilisateur quand le câblage des actionneurs est fini : un seul téléversement, puis validation buzzer et LED depuis le dashboard.
+
+**→ VM : synchronisation des visages passée sur `https://127.0.0.1` (fait, 6 oct.)**. `DashboardClient` sépare l'adresse de connexion (`https://127.0.0.1`, donc `10.0.2.2` côté VM) de l'origine déclarée (`Origin: https://192.168.137.1`). Vérifié : certificat Caddy valide pour `127.0.0.1`, API à 401 sans session. `enroll.py` utilise aussi `127.0.0.1` (fonctionne même point d'accès coupé). Prêt pour la restriction de `SERVICE_VISION` par IP. En attente : le compte `SERVICE_VISION`, créé par l'utilisateur.
+
+**→ VM : `feat/dashboard-ip-reelle` (Stève-John) fusionnée dans `main`, à déployer (6 oct.).**
+- Vérifié par la session Windows : changements limités à `dashboard/` et à la section dashboard ; aucun secret.
+- IP réelle : `uvicorn --proxy-headers --forwarded-allow-ips *` (Dockerfile) et Caddy sans `trusted_proxies`, donc l'`X-Forwarded-For` d'un client est écrasé.
+- `SERVICE_VISION` accepté seulement depuis `SERVICE_VISION_IPS` (défaut `10.0.2.2`), à la connexion et à chaque requête. Bon mot de passe depuis une mauvaise machine : 403, compté comme un échec. 110 tests (dont un `X-Forwarded-For` forgé : 403).
+- **À faire VM** : `git pull`, puis `sudo docker compose up -d --build dashboard caddy`, puis `test_dashboard.sh` (110 attendus). Ensuite, vérifier en production que l'anti force brute et les journaux voient les **vraies IP** (une connexion ratée depuis le Wi-Fi n'affecte pas `10.0.2.2`).
+- Côté Windows, la synchronisation se connecte déjà par `https://127.0.0.1` (vue en `10.0.2.2`) : compatible. Reste la création du compte `SERVICE_VISION` par l'utilisateur, puis « → Windows : SERVICE_VISION prêt ».
+- Branche `firmware` : rien à fusionner (elle est en retard d'un commit sur `main`, `aa11b5e`).
 
 ### Demandes à la session VM
 
@@ -394,6 +431,25 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 - `dashboard/docker-compose.yml` : services `dashboard` et `caddy` **ajoutés à la stack avec un `-f` en plus** (réseau `net_dashboard` existant, volume `captures` en lecture seule, nouveau réseau `net_web_edge` sans NAT sortant). L'API ne publie aucun port.
 - Comptes : `dashboard/api/add-user.sh` (mot de passe au clavier, haché dans le conteneur, inséré avec le compte admin PostgreSQL).
 - Point d'attention pour la VM : l'image dashboard crée `/data/captures` avec l'uid **10001** (ingestion). Sans ça, si le dashboard monte le volume `captures` en premier, Docker le donne à root et l'ingestion ne peut plus écrire les captures (bug vu et corrigé en test).
+
+**Fait (6 oct., après-midi) : les 3 demandes « → Dashboard » et la correction du test.**
+- **Page ADMIN « Utilisateurs »** : `POST /api/v1/utilisateurs` `{nom, email, role, mot_de_passe, mot_de_passe_admin}`. Le mot de passe de l'ADMIN connecté est ressaisi et vérifié (Argon2id). Mot de passe initial de 12 caractères minimum, haché dans l'API. `role` limité à LECTEUR/OPERATEUR/ADMIN (422 pour `SERVICE_VISION`). Email déjà pris : 409. Même anti force brute que la connexion. `PATCH /api/v1/utilisateurs/{id}` `{actif}` : 409 si un ADMIN tente de se désactiver lui-même. Interface : formulaire, liste avec activer/désactiver, enchaînement « créer puis photographier ».
+- **Photo par la caméra** dans « Images de référence » : `getUserMedia`, aperçu, capture `<canvas>` en JPEG (qualité 0,9, côté max 640 px), envoi sur la route existante. La caméra est arrêtée (`track.stop()`) dès la photo prise ou l'écran quitté. L'envoi de fichier est conservé. `Permissions-Policy: camera=(self)` dans le `Caddyfile` (micro et position toujours interdits).
+- **`SERVICE_VISION`** : refus par défaut. Toutes les routes exigent LECTEUR/OPERATEUR/ADMIN, sauf `GET /api/v1/images-reference` et `GET /api/v1/images-reference/{id}/fichier` (ADMIN ou service) et `/auth/me`. WebSocket fermé en 4403. L'interface affiche « compte de service : pas d'accès ». `GET /images-reference` renvoie maintenant `utilisateur_role` et `utilisateur_actif`.
+- **Test du port corrigé** : `docker inspect … {{json .HostConfig.PortBindings}}` doit valoir `{}` (plus de faux positif `:0`).
+- `test_dashboard.sh` : **105/105** sur Docker Desktop (13 Caddy, 92 API ; 27 nouveaux : 11 SERVICE_VISION, 13 utilisateurs). Vérifié aussi dans Chrome : création de compte, photo avec une caméra simulée, image enregistrée pour le bon compte.
+
+**→ VM : SERVICE_VISION restreint dans l'API** (403 partout sauf les deux routes d'images, testé : 11 tests dans `test_dashboard.sh`). Après fusion : redéployer `dashboard` et `caddy` (`sudo docker compose up -d --build dashboard caddy`), relancer `test_dashboard.sh`, puis l'utilisateur peut créer le compte de service avec `add-user.sh … SERVICE_VISION`.
+
+**Fait (6 oct., soir) : IP réelle + `SERVICE_VISION` limité au PC hôte.**
+- **IP réelle : déjà en place depuis la première version**, mais visible seulement dans `dashboard/api/Dockerfile`. uvicorn est lancé avec `--proxy-headers --forwarded-allow-ips *`, donc `request.client.host` est déjà l'IP posée par Caddy. Relevé avant toute modification : le journal indiquait l'IP du client (passerelle Docker), pas celle de Caddy. C'est maintenant expliqué en tête de `main.py` (fonction `_ip`), et **prouvé par des tests passant par Caddy** :
+  - le journal contient l'IP du conteneur de test ;
+  - 6 échecs avec un `X-Forwarded-For` différent à chaque fois donnent 429 : le blocage suit l'IP réelle ;
+  - le scénario se connecte ensuite normalement depuis une autre IP : un attaquant ne bloque pas l'équipe.
+- **`SERVICE_VISION` limité à `SERVICE_VISION_IPS`** (variable d'environnement, **`10.0.2.2` par défaut**, déjà passée par `dashboard/docker-compose.yml`) : 403 + journal à la connexion (compté comme un échec pour l'anti force brute) **et à chaque requête** (une session volée, rejouée ailleurs, est refusée).
+- Tests : `test_dashboard.sh` **110/110** (17 Caddy, 93 API ; 5 nouveaux, dont `X-Forwarded-For: 127.0.0.1` forgé via Caddy, toujours 403).
+
+**→ VM : SERVICE_VISION limité au PC hôte.** Après fusion : `sudo docker compose up -d --build dashboard`, puis `test_dashboard.sh`. Rien à ajouter au `.env` si `10.0.2.2` convient (sinon `SERVICE_VISION_IPS=…`, voir `dashboard/.env.example`).
 
 **Testé sur Docker Desktop (Windows), avec la stack de `server/` telle quelle** :
 - `dashboard/api/tests/test_dashboard.sh` : **78 OK** (13 Caddy, 65 API : auth, rôles, temps réel < 1 s mesuré à ~10 ms, `RESEAU_IA` invisible, commandes reçues par un faux ESP, injections, images, droits PostgreSQL). Pile isolée `sentinel-test`, détruite à la fin.

@@ -95,10 +95,31 @@ class Database:
             "FROM utilisateur u JOIN role r ON r.id_role = u.id_role "
             "WHERE u.id_utilisateur = %s", (id_utilisateur,))
 
+    async def hash_utilisateur(self, id_utilisateur: int) -> str | None:
+        row = await self._one(
+            "SELECT mot_de_passe_hash FROM utilisateur WHERE id_utilisateur = %s", (id_utilisateur,))
+        return row["mot_de_passe_hash"] if row else None
+
     async def utilisateurs(self):
-        return await self._all(
-            "SELECT u.id_utilisateur, u.nom, u.email, u.actif, r.code AS role "
+        rows = await self._all(
+            "SELECT u.id_utilisateur, u.nom, u.email, u.actif, r.code AS role, u.date_creation, u.heure_creation "
             "FROM utilisateur u JOIN role r ON r.id_role = u.id_role ORDER BY u.nom")
+        for r in rows:
+            r["instant"] = instant(r["date_creation"], r["heure_creation"])
+        return [jsonable(r) for r in rows]
+
+    async def creer_utilisateur(self, nom: str, email: str, role: str, hash_: str) -> int | None:
+        """Droits limités par PostgreSQL à ces 4 colonnes (03-comptes-dashboard.sql). None si le rôle n'existe pas.
+        Email déjà pris : psycopg.errors.UniqueViolation."""
+        row = await self._one(
+            "INSERT INTO utilisateur (id_role, nom, email, mot_de_passe_hash) "
+            "SELECT id_role, %s, lower(trim(%s)), %s FROM role WHERE code = %s RETURNING id_utilisateur",
+            (nom, email, hash_, role))
+        return row["id_utilisateur"] if row else None
+
+    async def activer_utilisateur(self, id_utilisateur: int, actif: bool) -> bool:
+        return await self._count(
+            "UPDATE utilisateur SET actif = %s WHERE id_utilisateur = %s", (actif, id_utilisateur)) == 1
 
     # ---------------- Dispositifs et mesures ----------------
     async def dispositifs(self):
@@ -162,9 +183,10 @@ class Database:
     # ---------------- Images de référence (ADMIN) ----------------
     async def images_reference(self):
         rows = await self._all(
-            "SELECT i.id_image_reference, i.id_utilisateur, u.nom AS utilisateur_nom, i.id_ajoute_par,"
-            " i.date_ajout, i.heure_ajout, i.active "
+            "SELECT i.id_image_reference, i.id_utilisateur, u.nom AS utilisateur_nom, r.code AS utilisateur_role,"
+            " u.actif AS utilisateur_actif, i.id_ajoute_par, i.date_ajout, i.heure_ajout, i.active "
             "FROM image_reference i JOIN utilisateur u ON u.id_utilisateur = i.id_utilisateur "
+            "JOIN role r ON r.id_role = u.id_role "
             "ORDER BY i.date_ajout DESC, i.heure_ajout DESC")
         for r in rows:
             r["instant"] = instant(r["date_ajout"], r["heure_ajout"])

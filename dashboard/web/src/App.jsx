@@ -28,6 +28,18 @@ export default function App() {
   }
 
   if (utilisateur === undefined) return null;
+  // Compte de service (synchronisation des visages) : aucun accès à l'interface
+  if (utilisateur?.role === "SERVICE_VISION") {
+    return (
+      <div className="login-page">
+        <div className="panneau login">
+          <h1>SENTINEL-X</h1>
+          <p>Compte de service : pas d'accès à l'interface.</p>
+          <button className="bouton" onClick={seDeconnecter}>Déconnexion</button>
+        </div>
+      </div>
+    );
+  }
   return utilisateur ? (
     <Dashboard utilisateur={utilisateur} onDeconnexion={seDeconnecter} onSessionExpiree={deconnexion} />
   ) : (
