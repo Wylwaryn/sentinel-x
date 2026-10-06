@@ -79,7 +79,7 @@ pub=$(docker ps --format '{{.Ports}}' | grep -oE '0\.0\.0\.0:[0-9]+' | cut -d: -
 [ -z "$(tr ' ' '\n' <<<"$pub" | grep -vxE '8883|8443|443|')" ]
 must $? "Ports publiés par Docker dans la liste blanche (8883, 8443, 443)" "publiés : ${pub:-aucun}"
 if grep -q "deny (outgoing)" <<<"$ufw_out"; then line INFO "Sorties de la VM bloquées sauf DNS/NTP" "firewall.sh --egress"
-else line INFO "Sorties de la VM non filtrées" "option firewall.sh --egress, non décidée"; fi
+else line "À FAIRE" "Sorties de la VM limitées à DNS et NTP" "jeudi après le gel -> firewall.sh --apply --egress"; fi
 ! systemctl is-active -q cups.service cups.socket 2>/dev/null; planned $? "CUPS arrêté" "port 631"
 [ "$(systemctl is-enabled cups.service 2>/dev/null)" = masked ]; planned $? "CUPS masqué (ne redémarre pas)"
 listen=$(ss -Htln | awk '{print $4}')

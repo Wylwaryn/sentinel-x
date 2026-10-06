@@ -3,6 +3,7 @@
 #
 #   sudo hardening/apply.sh                      # SIMULATION (par défaut) : affiche ce qui changerait
 #   sudo hardening/apply.sh --apply              # applique SSH, pare-feu (firewall.sh), CUPS
+#   sudo hardening/apply.sh --apply --egress     # + bloque les sorties (firewall.sh --egress), jeudi après le gel
 #   sudo hardening/apply.sh --apply --remove-sudoers
 #                                                # + supprime le sudo sans mot de passe (TOUT DERNIER,
 #                                                #   lancé par l'utilisateur : ensuite sudo demande le mot de passe)
@@ -18,13 +19,14 @@ SSHD_DROPIN=/etc/ssh/sshd_config.d/00-sentinel-hardening.conf
 SUDOERS_TMP=/etc/sudoers.d/90-sentinel-setup
 CUPS_UNITS=(cups.service cups.socket cups.path cups-browsed.service)
 
-APPLY=0 REMOVE_SUDOERS=0
+APPLY=0 REMOVE_SUDOERS=0 EGRESS=
 for arg in "$@"; do
     case "$arg" in
         --apply) APPLY=1 ;;
         --remove-sudoers) REMOVE_SUDOERS=1 ;;
+        --egress) EGRESS=--egress ;;
         --dry-run) APPLY=0 ;;
-        *) sed -n '2,11p' "$0" >&2; exit 1 ;;
+        *) sed -n '2,12p' "$0" >&2; exit 1 ;;
     esac
 done
 [ "$(id -u)" -eq 0 ] || { echo "À lancer avec sudo." >&2; exit 1; }
@@ -75,9 +77,9 @@ fi
 
 # ---------------------------------------------------------------------------
 # Pare-feu (UFW + ports des conteneurs) : délégué à firewall.sh, seule source des règles.
-# Sans --egress : les sorties ne sont pas bloquées (option à décider, voir firewall.sh).
+# --egress (décidé : jeudi après le gel du code) : sorties limitées à DNS et NTP.
 title "Pare-feu : voir hardening/firewall.sh"
-if [ $APPLY -eq 1 ]; then "$(dirname "$0")/firewall.sh" --apply; else "$(dirname "$0")/firewall.sh"; fi \
+if [ $APPLY -eq 1 ]; then "$(dirname "$0")/firewall.sh" --apply $EGRESS; else "$(dirname "$0")/firewall.sh" $EGRESS; fi \
     | sed -e '/^MODE /d' -e 's/^/  /'
 
 # ---------------------------------------------------------------------------
