@@ -397,6 +397,11 @@ Les photos de visages sont des données biométriques : la section « Images de 
 
 **→ VM** : après la fusion, `HOST_ONLY_IPS` et `DASHBOARD_ORIGINS` dans `.env`/compose, redéploiement, tests, puis vérification depuis Windows (la session Windows testera les deux adresses du PC hôte et une adresse du Wi-Fi).
 
+**→ VM : `feat/dashboard-poste-hote` (Stève-John) FUSIONNÉE dans `main` par la session Windows (6 oct., soir), à déployer.** Elle contient aussi la LED rouge automatique (`feat/dashboard-led-critique` en est un sous-ensemble : rien d'autre à fusionner).
+- Relu : seulement `dashboard/` et la section dashboard, aucun secret. Les 7 routes comptes et visages sont protégées (`AdminHote` : utilisateurs liste/création/activation, images envoi/activation ; `LecteurImages` : liste et fichier, ADMIN sur le PC hôte ou `SERVICE_VISION` avec sa propre règle). Refus journalisés. `poste_hote` dans `/auth/me`. 132 tests.
+- LED critique : une seule commande `clignote` avec `duree_ms` 30 min, puis `off` quand plus aucune alerte critique n'attend. Compatible avec le firmware **une fois téléversé** : l'ESP a encore l'ancien firmware, qui ignore `duree_ms` et rend la main au bout de 60 s.
+- **À faire VM** : déployer (`HOST_ONLY_IPS=10.0.2.2,192.168.137.1`, `DASHBOARD_ORIGINS` avec `https://127.0.0.1`), `test_dashboard.sh` (132), puis écrire « → Windows : poste hôte déployé ». La session Windows testera alors les deux adresses du PC hôte.
+
 ### Demandes à la session VM
 
 **→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :
