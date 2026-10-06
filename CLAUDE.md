@@ -81,7 +81,7 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 **En service dans la VM** :
 - PostgreSQL ;
 - Mosquitto MQTTS sur 8883 (45 tests OK, 6 comptes) ;
-- **API d'ingestion sur 8443** (`server/ingest/`, 59 tests OK sur une pile isolée).
+- **API d'ingestion sur 8443** (`server/ingest/`, 68 tests OK sur une pile isolée).
 - Supervision `sentinel-monitor` (timer chaque minute).
 - **Dashboard + Caddy :443** (code de la session dashboard, lancé par `COMPOSE_FILE`).
 
@@ -100,6 +100,12 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 - ~~ESP sans connexion TLS~~ : **résolu par la session Windows** (connexion par IP, date de compilation en repli). Vérifié côté VM : `SX-G2-01` en ligne, mesures en base.
 - **8443 validé** (connexion du PC hôte comptée par la règle `10.0.2.2`). **8883 depuis le Wi-Fi validé** (2 reconnexions de l'ESP comptées par la règle `192.168.137.0/24`, même avec son IP qui change). **Liste blanche entièrement validée, 0 connexion légitime qui aurait été bloquée** : prête pour mercredi soir. ~~Test demandé~~ : Pendant que l'observation tourne, ouvrir au moins une **nouvelle** connexion depuis Windows vers 8883 (vision, maintenance prédictive ou ESP) et vers 8443 (une alerte, ou `curl https://127.0.0.1:8443/healthz`). Puis écrire « → VM : test observation fait » : la VM vérifiera que les compteurs des règles d'autorisation montent et que rien de légitime n'apparaît dans les « serait bloqué ».
 - **Quand appliquer : DÉCIDÉ par l'utilisateur (6 oct.).** `firewall.sh --apply` **mercredi soir, en même temps que `windows_firewall.ps1 -Apply`**, puis `--egress` jeudi après le gel (voir la liste en bas de ce fichier).
+
+**→ Windows : `personne_reconnue` en service (6 oct., 14:50).** `POST /api/v1/alerts` accepte `personne_reconnue` (ou `id_personne_reconnue`), un entier `id_utilisateur` écrit dans `alerte.id_personne_reconnue`.
+- **Seulement pour `VISION_IA`/`FUSION`** : un autre client ou une autre origine (PIR, IDS) reçoit 422.
+- Id inconnu : **422** « personne_reconnue inconnue » (pas 500). Valeur ≤ 0 ou non entière : 422.
+- **Le rôle `ingest` n'a toujours aucun accès à `utilisateur`** (testé) : PostgreSQL vérifie la clé étrangère avec les droits du propriétaire.
+- 9 tests ajoutés : `test_ingest.sh` **68/68**. API redéployée en production.
 
 **→ Dashboard : mise en service FAITE (6 oct., validée par l'utilisateur).**
 - Certificat Caddy (`pki.sh server caddy 10003 …`, SAN `sentinel-server`, `localhost`, `127.0.0.1`, `192.168.137.1`). `DASHBOARD_JWT_SECRET` généré, `DASHBOARD_ORIGINS=https://192.168.137.1`, `CADDY_SNI=sentinel-server` dans `server/.env`.
@@ -153,7 +159,7 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 | Droits PostgreSQL | `db/tests/test_droits.sh` (base de test) | 39 OK |
 | Mosquitto (TLS, authentification, ACL des 6 comptes, limites) | `mosquitto/tests/test_mqtt.sh` | 45 OK |
 | Dashboard + Caddy (session dashboard) | `../dashboard/api/tests/test_dashboard.sh` (pile isolée) | 77 OK, 1 faux positif (voir ci-dessus) |
-| API d'ingestion (HTTPS, jetons, contrat, validation, injection, captures, télémétrie, hors ligne) | `ingest/tests/test_ingest.sh` (pile isolée) | 59 OK |
+| API d'ingestion (HTTPS, jetons, contrat, validation, injection, captures, télémétrie, hors ligne, personne reconnue) | `ingest/tests/test_ingest.sh` (pile isolée) | 68 OK |
 | Conformité de la VM | `hardening/verify.sh` | 42 OK, 11 à faire (mercredi soir et jeudi), 0 KO |
 
 La session VM surveille ce fichier (vérification Git toutes les minutes) et ne passe à la suite qu'avec un feu vert de l'utilisateur ou d'une session. Elle ne prend aucune décision hors plan.
