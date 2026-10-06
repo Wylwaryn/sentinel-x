@@ -309,6 +309,8 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 - [ ] UFW : n'autoriser que 22, 443 et 8883
 - [ ] Désactiver CUPS (port 631)
 - [ ] VirtualBox : couper le presse-papiers et le glisser-déposer
-- [ ] Pare-feu Windows : la règle existante **« VirtualBox Virtual Machine »** autorise TOUT en entrée sur le profil Public, donc aussi depuis le Wi-Fi de l'école, où seront les autres groupes. La restreindre au réseau de la table (PowerShell **administrateur**) :
-  `Get-NetFirewallRule -DisplayName "VirtualBox Virtual Machine" | Where-Object Direction -eq Inbound | Set-NetFirewallRule -RemoteAddress 192.168.137.0/24`
-  Vérification : 8883 joignable depuis un appareil du point d'accès, et refusé depuis le Wi-Fi de l'école.
+- [ ] **Pare-feu Windows : `host/hardening/windows_firewall.ps1`** (PowerShell administrateur).
+  - Sans option : simulation. `-Apply` : sauvegarde complète, puis désactivation des règles entrantes « Autoriser » du profil Public (109 aujourd'hui : jeux, adb, Node, Docker, diffusion sans fil…), sauf la gestion réseau de base de Windows.
+  - Crée 5 règles **limitées à `192.168.137.0/24`** : 8883, 443, DHCP 67, DNS 53 (UDP et TCP).
+  - `-Restore` remet tout comme avant.
+  - À appliquer **dès mercredi soir**, pour détecter une casse avant le pentest ; puis vérifier : DHCP sur le point d'accès, ESP connecté sur 8883, dashboard joignable.

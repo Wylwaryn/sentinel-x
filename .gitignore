@@ -28,3 +28,6 @@ host/predictive/logs/
 # Firmware : secrets (Wi-Fi, mot de passe MQTT) et fichiers de compilation
 firmware/include/secrets.h
 firmware/.pio/
+
+# Sauvegarde locale du pare-feu Windows (configuration du PC)
+host/hardening/backup/
