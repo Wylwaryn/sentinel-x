@@ -43,6 +43,7 @@ void loop() {
       } else {
         lastGas = g;
         Serial.print("Gas: "); Serial.println(g);
+        if (gasRise(g)) Serial.println("Gas: COMBUSTIBLE GAS RISE");
       }
     }
   }
