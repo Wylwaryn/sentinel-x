@@ -101,6 +101,12 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 - **8443 validé** (connexion du PC hôte comptée par la règle `10.0.2.2`). **8883 depuis le Wi-Fi validé** (2 reconnexions de l'ESP comptées par la règle `192.168.137.0/24`, même avec son IP qui change). **443 validé aussi** (dashboard ouvert sur `https://192.168.137.1` : connexions comptées par la règle `192.168.137.0/24`, y compris depuis le PC hôte). **Liste blanche entièrement validée (8883, 8443, 443), 0 connexion légitime qui aurait été bloquée** : prête pour mercredi soir. ~~Test demandé~~ : Pendant que l'observation tourne, ouvrir au moins une **nouvelle** connexion depuis Windows vers 8883 (vision, maintenance prédictive ou ESP) et vers 8443 (une alerte, ou `curl https://127.0.0.1:8443/healthz`). Puis écrire « → VM : test observation fait » : la VM vérifiera que les compteurs des règles d'autorisation montent et que rien de légitime n'apparaît dans les « serait bloqué ».
 - **Quand appliquer : DÉCIDÉ par l'utilisateur (6 oct.).** `firewall.sh --apply` **mercredi soir, en même temps que `windows_firewall.ps1 -Apply`**, puis `--egress` jeudi après le gel (voir la liste en bas de ce fichier).
 
+**→ Dashboard / Windows / IoT : `feat/dashboard-poste-hote` DÉPLOYÉE (6 oct., 16:46).** Code relu par la VM (dépendance `AdminHote` sur toutes les routes Utilisateurs et Images, IP réelle ; LED automatique en tâche séparée, compte MQTT `dashboard`, ACL `sentinel/cmd/+` inchangées).
+- `server/.env` : `DASHBOARD_ORIGINS=https://192.168.137.1,https://127.0.0.1`. `HOST_ONLY_IPS=10.0.2.2,192.168.137.1` et `SERVICE_VISION_IPS=10.0.2.2` viennent des valeurs par défaut du compose (vérifiées dans le conteneur).
+- **`test_dashboard.sh` dans la VM : 132/132** (111 API + 21 Caddy). En production, la synchronisation des visages continue (`10.0.2.2`, 200).
+- **→ Windows : à vérifier en réel**. Pages Utilisateurs et Images accessibles depuis `https://192.168.137.1` et `https://127.0.0.1` sur le PC hôte, masquées et refusées (403) depuis un appareil du Wi-Fi (téléphone). La VM vérifiera les IP dans les journaux.
+- **→ IoT : LED rouge automatique à valider sur le boîtier.** Une alerte `CRITIQUE` fait clignoter la LED rouge, et la LED s'éteint quand plus aucune alerte critique n'attend.
+
 **→ Dashboard : choix de la caméra déployé (6 oct.)** : `caddy` reconstruit et redéployé, page servie (200), en-têtes de sécurité inchangés (CSP, `camera=(self)`).
 
 **→ Windows : synchronisation des visages VÉRIFIÉE côté VM (6 oct., 14:14 UTC).** Journaux du dashboard : `connexion de l'utilisateur 3 (SERVICE_VISION) depuis 10.0.2.2`, puis `GET /api/v1/images-reference` en 200, toutes les ~60 s. Le même compte depuis le navigateur (`192.168.137.1`) est bien refusé (403, essai de l'utilisateur à 13:53). Le flux n° 12 de `docs/fiche-reseau.md` est donc exact.
@@ -188,7 +194,7 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 |---|---|---|
 | Droits PostgreSQL | `db/tests/test_droits.sh` (base de test) | 48 OK |
 | Mosquitto (TLS, authentification, ACL des 6 comptes, limites) | `mosquitto/tests/test_mqtt.sh` | 45 OK |
-| Dashboard + Caddy (session dashboard) | `../dashboard/api/tests/test_dashboard.sh` (pile isolée) | 110 OK |
+| Dashboard + Caddy (session dashboard) | `../dashboard/api/tests/test_dashboard.sh` (pile isolée) | 132 OK |
 | API d'ingestion (HTTPS, jetons, contrat, validation, injection, captures, télémétrie, hors ligne, personne reconnue) | `ingest/tests/test_ingest.sh` (pile isolée) | 68 OK |
 | Conformité de la VM | `hardening/verify.sh` | 42 OK, 11 à faire (mercredi soir et jeudi), 0 KO |
 
