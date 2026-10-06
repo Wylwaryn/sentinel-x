@@ -308,6 +308,17 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 - L'image postgres fait confiance aux connexions locales par défaut. D'où `POSTGRES_INITDB_ARGS=--auth-local=scram-sha-256 --auth-host=scram-sha-256`.
 - La RTX 5050 (Blackwell) exige PyTorch `cu128` ou plus. Webcam USB = index 1 (l'index 0 est la caméra intégrée HP).
 
+## Rejoindre la coordination (sessions des collègues : dashboard, fablab, vidéo, dossier…)
+
+1. **Lire ce fichier en entier** : décisions déjà prises, contrats (API, MQTT, BDD), ports, pièges.
+2. **Créer sa propre section** juste avant « Pièges déjà rencontrés », sur le modèle des sections VM et Windows :
+   `## <Rôle> : où en est la session <rôle> (mis à jour par elle)`. Y écrire ce qui est fait, l'état, les choix techniques, et comment tester.
+3. **Pour demander quelque chose à une autre session**, écrire dans SA PROPRE section une ligne « **→ VM :** … » ou « **→ Windows :** … ». Les sessions VM et Windows surveillent le fichier et répondent dans leur propre section. Ne jamais modifier la section d'une autre session.
+4. **Dossiers** : chacun travaille dans le sien (`dashboard/`, `docs/`, `fablab/`…) et ne touche pas à `host/`, `server/`, `firmware/` sans passer par une demande « → ».
+5. **Git** : `git pull --rebase` avant de commencer ; commits sémantiques en français ; `git push` dès qu'un morceau fonctionne. **Aucun secret** (mots de passe, jetons, `.env`, `secrets.h`) : seulement des noms de variables.
+6. **Ne jamais téléverser un autre programme sur l'ESP** : voir la section Windows, partie firmware.
+7. Pour pousser, il faut être **collaborateur** du dépôt GitHub `Wylwaryn/sentinel-x` (à demander à l'utilisateur).
+
 ## Répartition entre sessions Claude (pour éviter les conflits Git)
 
 - **Session Windows** : `host/` (vision, IA réseau), `docs/`, coordination.
