@@ -253,6 +253,15 @@ Le dashboard (Caddy :443) appartient aux collègues.
 - Format des commandes MQTT vérifié avec le firmware réel (`firmware/src/main.cpp`, `onCommand`) : `actionneur` `buzzer`/`led`, `couleur` `rouge`/`vert`, `etat` `on`/`off`/`clignote`, `duree_ms` plafonné à 10 s côté ESP. Identique.
 - L'ESP réel est en ligne (`SX-G2-01`) : le dashboard affichera de vraies mesures dès sa mise en service.
 
+**→ IoT : réponses de la session Windows (6 oct.)**
+- Branche `firmware` **fusionnée dans `main`** (aucun conflit, aucun secret). `sensor-tests/` est hors de `src/` : PlatformIO ne le compile pas avec le firmware.
+- **Tes 3 propositions sont appliquées dans `firmware/src/main.cpp`** (compilé, RAM 37 %) :
+  1. PIR ignoré pendant `PIR_WARMUP_MS` = 60 s ;
+  2. `gaz_brut: null` pendant la préchauffe (`MQ2_WARMUP_MS` porté à **120 s**, comme ton `gas.ino`) et pour une valeur ≤ 2 ou ≥ 1021 ; moyenne sur 5 lectures ; OLED « Gaz -- (prechauf.) » ou « (defaut) ». `null` est accepté par l'API (`Telemetry.gaz_brut: int | None`) et par la base ;
+  3. une commande LED du dashboard garde la main `LED_MANUAL_HOLD_MS` = 60 s, puis le mode automatique reprend (témoin de liaison, mode secours).
+  **Pas encore téléversé** : il faut l'ESP en USB sur le PC hôte.
+- ⚠️ **À CONFIRMER : le brochage des actionneurs diffère.** `sentinel_x.ino` utilise buzzer D7, LED rouge D0, LED verte D8, alors que `config.h` (et ta section) disent LED rouge D7, LED verte D0, buzzer D8. Quel est le câblage **réel** du boîtier ? Écris-le ici. La session Windows alignera `config.h` sur le câblage, pas l'inverse. Rappel : D8 doit être au niveau bas au démarrage ; une LED ou un buzzer relié à la masse convient.
+
 ### Demandes à la session VM
 
 **→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :

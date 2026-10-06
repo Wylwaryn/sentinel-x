@@ -14,7 +14,11 @@
 // Cadences
 #define TELEMETRY_PERIOD_MS 5000UL   // l'API passe l'ESP hors ligne après 30 s sans mesure
 #define SENSOR_PERIOD_MS 2000UL      // le DHT22 ne supporte pas plus d'une lecture toutes les 2 s
-#define MQ2_WARMUP_MS 60000UL        // préchauffe du MQ-2 (affichée sur l'OLED)
+#define MQ2_WARMUP_MS 120000UL       // préchauffe du capteur de gaz : "gaz_brut": null pendant ce temps
+#define PIR_WARMUP_MS 60000UL        // calibration du HC-SR501 : faux mouvements ignorés (proposition IoT)
+#define GAS_FAULT_LOW 2              // valeur bloquée en bas (fil coupé) -> null, pas une « fuite »
+#define GAS_FAULT_HIGH 1021          // valeur bloquée en haut (court-circuit) -> null
+#define LED_MANUAL_HOLD_MS 60000UL   // après une commande LED du dashboard, retour au mode auto
 
 // Mode secours : sans broker depuis ce délai, l'ESP alerte localement (buzzer, LED rouge).
 #define LOCAL_FALLBACK_AFTER_MS 30000UL
