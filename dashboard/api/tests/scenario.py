@@ -46,9 +46,10 @@ def check(obtenu, attendu, label):
 
 
 # ---------------------------------------------------------------- HTTP
-def http(methode, chemin, corps=None, cookie=None, origin=ORIGIN, type_="application/json"):
+def http(methode, chemin, corps=None, cookie=None, origin=ORIGIN, type_="application/json", ip=None):
+    """ip : simule une autre IP réelle (comme si Caddy l'avait posée dans X-Forwarded-For)."""
     data = None
-    headers = {}
+    headers = {"X-Forwarded-For": ip} if ip else {}
     if corps is not None:
         data = corps if isinstance(corps, bytes) else json.dumps(corps).encode()
         headers["Content-Type"] = type_
@@ -293,6 +294,8 @@ async def main():
     check(code("POST", f"/api/v1/images-reference?id_utilisateur={uid}", JPEG, cookie=service, type_="image/jpeg"),
           403, "service : ajout d'image refusé (403)")
     check(await fermeture(service), 4403, "service : WebSocket refusé (4403)")
+    check(code("GET", "/api/v1/images-reference", cookie=service, ip="192.168.137.66"), 403,
+          "session de service volée, rejouée depuis une autre IP : 403 à chaque requête")
 
     print("== Utilisateurs (ADMIN) ==")
     compte = {"nom": "Nouveau membre", "email": "Nouveau@Test.local", "role": "LECTEUR",
