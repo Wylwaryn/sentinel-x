@@ -1,9 +1,11 @@
 {
   "capture": {
-    "iface": "Wi-Fi",
+    "iface": "Connexion au réseau local* 4",
     "bpf": "ip",
     "window_s": 2.0,
-    "protected_ips": [],
+    "protected_ips": [
+      "192.168.137.1"
+    ],
     "service_ports": [
       22,
       443,

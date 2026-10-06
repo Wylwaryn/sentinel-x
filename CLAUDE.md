@@ -204,7 +204,7 @@ Le dashboard (Caddy :443) appartient aux collègues.
   - [x] `ca.crt` copié dans **`host/certs/ca.crt`** (dossier partagé par la vision et l'IDS, pas `host/vision/certs/`). Empreinte SHA-256 `36:A8:B4:4A:…:68:55:AD`.
   - [x] Mot de passe `vision` récupéré seul, stocké dans les variables d'environnement utilisateur Windows `SENTINEL_MQTT_USER` / `SENTINEL_MQTT_PASS`. Jamais affiché ni commité.
   - [x] Redirections NAT faites par l'utilisateur : `0.0.0.0:8883` (MQTTS) et `127.0.0.1:8443` (ingestion), en plus de `127.0.0.1:2222` (SSH). Vérifié : certificat MQTTS valide, `/healthz` de l'ingestion à 200.
-  - [ ] IP du point d'accès : pas encore activé. Vérification prévue dès qu'il l'est.
+  - [x] **Point d'accès actif (6 oct.) : `192.168.137.1/24`** sur l'interface Windows « Connexion au réseau local* 4 », en 2,4 GHz. C'est l'IP du certificat Mosquitto, donc **rien à régénérer côté VM**. Vérifié : TLS sur `192.168.137.1:8883` OK, certificat validé pour cette IP.
   - [x] `client_id` uniques : **une seule connexion MQTT** pour le PIR et la vidéo (`client_id = sentinel-vision`).
 
 **Réponses à « À faire côté Windows / équipe » (section VM) :** redirections NAT ✅ ; site et ESP créés en base ✅ (`SX-G2-01`, voir plus bas) ; jetons vision et IDS ✅ ; IP du point d'accès ⏳ (en attente que l'utilisateur l'active) ; firmware ⏳ (équipe, pas commencé). `INGEST_DEFAULT_SERIE` est inutile : la vision envoie toujours `serie`.
@@ -244,7 +244,9 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 
 **Vision et IDS activés** (`enabled: true`). Jetons `INGEST_TOKEN_VISION` et `INGEST_TOKEN_IDS` copiés seuls dans les variables d'environnement Windows `SENTINEL_VISION_TOKEN` / `SENTINEL_IDS_TOKEN`. Test de bout en bout contre l'API : vision `FUSION/INTRUSION` donne 201 ; IDS `RESEAU_IA/SCAN_PORTS` donne 201 ; jeton vision qui tente `RESEAU_IA` donne 403 ; sans jeton, 401. Les lignes de test ont été supprimées.
 
-**Npcap installé**, capture OK. Point d'accès Windows pas encore activé : l'interface de capture de l'IDS sera fixée quand il aura son IP.
+**Npcap installé**, capture OK. IDS configuré sur « Connexion au réseau local* 4 » (IP protégée `192.168.137.1`). Le nom de cette interface peut changer après un redémarrage : vérifier avec `python sentinel_ids.py interfaces`.
+
+**→ VM : rien à faire pour l'IP du point d'accès** : c'est bien `192.168.137.1`, la condition de régénération du certificat ne s'applique pas.
 
 **Maintenance prédictive `host/predictive/` (5 oct., 11 tests)** :
 - **Caractéristiques cinétiques** sur 1 et 5 min : écart à la normale, pentes, accélération, volatilité, corrélations temp/gaz et temp/hum, valeurs manquantes ou figées.
@@ -299,4 +301,6 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 - [ ] UFW : n'autoriser que 22, 443 et 8883
 - [ ] Désactiver CUPS (port 631)
 - [ ] VirtualBox : couper le presse-papiers et le glisser-déposer
-- [ ] Pare-feu Windows : tout refuser en entrée, sauf les redirections vers la VM
+- [ ] Pare-feu Windows : la règle existante **« VirtualBox Virtual Machine »** autorise TOUT en entrée sur le profil Public, donc aussi depuis le Wi-Fi de l'école, où seront les autres groupes. La restreindre au réseau de la table (PowerShell **administrateur**) :
+  `Get-NetFirewallRule -DisplayName "VirtualBox Virtual Machine" | Where-Object Direction -eq Inbound | Set-NetFirewallRule -RemoteAddress 192.168.137.0/24`
+  Vérification : 8883 joignable depuis un appareil du point d'accès, et refusé depuis le Wi-Fi de l'école.
