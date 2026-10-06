@@ -15,11 +15,11 @@ import sys
 from pathlib import Path
 
 import cv2
-import numpy as np
 
 from dashboard_client import DashboardClient, DashboardError
 from faces import FaceEngine, face_crop
 from gallery import Gallery
+from sync import sync_once
 
 BASE = Path(__file__).resolve().parent
 GALLERY = BASE / "data" / "gallery.npz"
@@ -96,7 +96,7 @@ def cmd_enroll(_args):
                 except DashboardError as exc:
                     message = f"envoi refuse : {exc}"
                     continue
-                gallery.add(person["id_utilisateur"], person["nom"], person["role"], vec)
+                gallery.add(person["id_utilisateur"], person["nom"], person["role"], vec, image_id=id_image)
                 done += 1
                 message = f"photo enregistree (image {id_image})"
     finally:
@@ -111,24 +111,12 @@ def cmd_sync(_args):
     """Reconstruit la galerie depuis les images ACTIVES du dashboard (désactivation = retrait)."""
     client = connect()
     engine, gallery = FaceEngine(), Gallery(GALLERY)
-    users = {u["id_utilisateur"]: u for u in client.users()}
-    gallery.clear()
-    skipped = 0
-    for img in client.images():
-        u = users.get(img["id_utilisateur"])
-        if not img["active"] or not u or not u["actif"]:
-            continue
-        data = np.frombuffer(client.image_file(img["id_image_reference"]), dtype=np.uint8)
-        image = cv2.imdecode(data, cv2.IMREAD_COLOR)
-        faces = engine.detect(image)
-        if not faces:
-            skipped += 1
-            continue
-        gallery.add(u["id_utilisateur"], u["nom"], u["role"], engine.embed(image, faces[0]), save=False)
+    gallery.remove_images([-1], save=False)  # empreintes d'origine inconnue : remplacées par celles du dashboard
+    added, removed, skipped = sync_once(gallery, engine, client)
     gallery.save()
     client.logout()
-    print(f"Galerie reconstruite : {len(gallery.people())} personne(s), {len(gallery)} empreinte(s)"
-          + (f", {skipped} image(s) sans visage détecté ignorée(s)" if skipped else ""))
+    print(f"Galerie synchronisée : +{added}, -{removed} ; {len(gallery.people())} personne(s), "
+          f"{len(gallery)} empreinte(s)" + (f", {skipped} image(s) sans visage ignorée(s)" if skipped else ""))
 
 
 def cmd_list(_args):

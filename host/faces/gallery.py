@@ -16,7 +16,7 @@ DEFAULT_THRESHOLD = 0.40
 class Gallery:
     def __init__(self, path):
         self.path = Path(path)
-        self.ids, self.names, self.roles = [], [], []
+        self.ids, self.names, self.roles, self.image_ids = [], [], [], []
         self.vectors = np.zeros((0, 128), dtype=np.float32)
         self._mtime = None
         self.reload()
@@ -33,7 +33,7 @@ class Gallery:
 
     def reload(self):
         if not self.path.exists():
-            self.ids, self.names, self.roles = [], [], []
+            self.ids, self.names, self.roles, self.image_ids = [], [], [], []
             self.vectors = np.zeros((0, 128), dtype=np.float32)
             self._mtime = None
             return
@@ -42,6 +42,8 @@ class Gallery:
             self.names = [str(v) for v in d["names"]]
             self.roles = [str(v) for v in d["roles"]]
             self.vectors = d["vectors"].astype(np.float32).reshape(-1, 128)
+            # Identifiant de l'image du dashboard d'où vient chaque empreinte (-1 : inconnu)
+            self.image_ids = [int(v) for v in d["image_ids"]] if "image_ids" in d.files else [-1] * len(self.ids)
         self._mtime = self.path.stat().st_mtime
 
     def reload_if_changed(self):
@@ -51,7 +53,8 @@ class Gallery:
             return True
         return False
 
-    def add(self, person_id, name, role, vector, save=True):
+    def add(self, person_id, name, role, vector, save=True, image_id=-1):
+        self.image_ids.append(int(image_id))
         self.ids.append(int(person_id))
         self.names.append(name)
         self.roles.append(role)
@@ -60,7 +63,14 @@ class Gallery:
             self.save()
 
     def remove(self, person_id, save=True):
-        keep = [k for k, i in enumerate(self.ids) if i != int(person_id)]
+        self._keep([k for k, i in enumerate(self.ids) if i != int(person_id)], save)
+
+    def remove_images(self, image_ids, save=True):
+        drop = {int(i) for i in image_ids}
+        self._keep([k for k, i in enumerate(self.image_ids) if i not in drop], save)
+
+    def _keep(self, keep, save):
+        self.image_ids = [self.image_ids[k] for k in keep]
         self.ids = [self.ids[k] for k in keep]
         self.names = [self.names[k] for k in keep]
         self.roles = [self.roles[k] for k in keep]
@@ -69,14 +79,15 @@ class Gallery:
             self.save()
 
     def clear(self):
-        self.ids, self.names, self.roles = [], [], []
+        self.ids, self.names, self.roles, self.image_ids = [], [], [], []
         self.vectors = np.zeros((0, 128), dtype=np.float32)
 
     def save(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_name(self.path.stem + ".tmp.npz")
         np.savez(tmp, ids=np.array(self.ids, dtype=np.int64), names=np.array(self.names, dtype=str),
-                 roles=np.array(self.roles, dtype=str), vectors=self.vectors.astype(np.float32))
+                 roles=np.array(self.roles, dtype=str), image_ids=np.array(self.image_ids, dtype=np.int64),
+                 vectors=self.vectors.astype(np.float32))
         os.replace(tmp, self.path)
         self._mtime = self.path.stat().st_mtime
 

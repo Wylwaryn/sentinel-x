@@ -305,6 +305,8 @@ Le dashboard (Caddy :443) appartient aux collègues.
 - Créer le compte de service une fois la VM prête (lancé par l'utilisateur) : `sudo ../dashboard/api/add-user.sh vision-sync@sentinel.local "Synchronisation vision" SERVICE_VISION` (adapter `add-user.sh` pour accepter ce rôle, depuis le terminal de la VM uniquement).
 - Écrire « → Windows : SERVICE_VISION prêt » : la session Windows branche alors la synchronisation automatique (mot de passe dans les variables d'environnement Windows `SENTINEL_FACES_USER` / `SENTINEL_FACES_PASS`).
 
+**Côté Windows, déjà prêt (6 oct.)** : `host/faces/sync.py`. Synchronisation incrémentale toutes les 60 s dans la vision : nouvelles images actives ajoutées, images ou comptes désactivés retirés, aucun retéléchargement. 4 tests (28 au total pour faces + vision). Inactive tant que `SENTINEL_FACES_USER`/`SENTINEL_FACES_PASS` sont absents. Elle utilise `utilisateur_role` et `utilisateur_actif` s'ils sont présents dans `GET /images-reference`, sinon rôle « ? » et compte considéré actif.
+
 ### Demandes à la session VM
 
 **→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :

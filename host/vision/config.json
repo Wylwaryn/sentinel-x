@@ -91,7 +91,14 @@
     "retry_s": 0.4,
     "reverify_s": 5.0,
     "grace_s": 2.0,
-    "min_face_px": 40
+    "min_face_px": 40,
+    "sync": {
+      "enabled": true,
+      "dashboard_url": "https://192.168.137.1",
+      "interval_s": 60,
+      "username_env": "SENTINEL_FACES_USER",
+      "password_env": "SENTINEL_FACES_PASS"
+    }
   },
   "mqtt": {
     "enabled": true,

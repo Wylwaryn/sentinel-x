@@ -117,6 +117,13 @@ def main():
         tracker = IdentityTracker(faces_cfg, FaceEngine(), gallery)
         event_gate = EventGate(tracker)
         print(f"Reconnaissance faciale : {len(gallery.people())} personne(s) autorisée(s) dans la galerie")
+        if faces_cfg.get("sync", {}).get("enabled"):
+            from sync import BackgroundSync
+            # Moteur et galerie dédiés : les modèles OpenCV ne se partagent pas entre threads ;
+            # la galerie de la vision recharge le fichier quand la synchronisation l'a modifié.
+            bg = BackgroundSync(Gallery(gallery.path), FaceEngine(), faces_cfg["sync"])
+            print("Synchronisation des visages avec le dashboard : "
+                  + ("active" if bg.start() else "inactive (SENTINEL_FACES_USER / SENTINEL_FACES_PASS absents)"))
 
     link = None
     if config["mqtt"]["enabled"]:

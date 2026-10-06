@@ -34,12 +34,12 @@ class DashboardClient:
             raise DashboardError(f"{r.status_code} : {detail}")
         return r
 
-    def login(self, email, password):
+    def login(self, email, password, allowed_roles=("ADMIN",)):
         r = self._check(self.s.post(f"{self.base}/api/v1/auth/login",
                                     json={"email": email, "password": password}, timeout=self.timeout))
         self.user = r.json()["utilisateur"]
-        if self.user["role"] != "ADMIN":
-            raise DashboardError("ce compte n'est pas ADMIN : l'enrôlement est réservé aux administrateurs")
+        if self.user["role"] not in allowed_roles:
+            raise DashboardError(f"rôle {self.user['role']} insuffisant (attendu : {', '.join(allowed_roles)})")
         return self.user
 
     def users(self):
