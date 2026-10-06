@@ -23,7 +23,7 @@ sudo pki/pki.sh server caddy 10003 DNS:sentinel-server,DNS:localhost,IP:127.0.0.
 sudo docker compose -f docker-compose.yml -f ../dashboard/docker-compose.yml up -d --build dashboard caddy
 # 4. Comptes (mot de passe demandé au clavier, haché en Argon2id)
 sudo ../dashboard/api/add-user.sh admin@sentinel.local "Administrateur" ADMIN
-# 5. Tests sur une pile isolée (105 tests : Caddy, API, temps réel, rôles, comptes, MQTT, injections)
+# 5. Tests sur une pile isolée (110 tests : Caddy, IP réelle, API, temps réel, rôles, comptes, MQTT, injections)
 sudo ../dashboard/api/tests/test_dashboard.sh
 ```
 
@@ -49,14 +49,16 @@ Dashboard : `https://192.168.137.1` (le navigateur doit faire confiance à `cert
 WebSocket `/ws` (même cookie) : `{"type":"mesure","data":{...}}`, `{"type":"alerte","data":{...}}`, `{"type":"resync"}`, et les images webcam en binaire (JPEG).
 Code de fermeture 4401 = session absente ou expirée, 4403 = origine refusée ou compte de service.
 
-`SERVICE_VISION` (synchronisation des visages, créé uniquement au terminal avec `add-user.sh`) : refusé partout (403) sauf les deux `GET` d'images.
+`SERVICE_VISION` (synchronisation des visages, créé uniquement au terminal avec `add-user.sh`) : refusé partout (403) sauf les deux `GET` d'images,
+et seulement depuis `SERVICE_VISION_IPS` (`10.0.2.2` par défaut : le PC hôte vu de la VM), à la connexion et à chaque requête.
 
 Les instants sont envoyés en UTC (`"instant": "2026-10-07T14:02:11.482913Z"`) ; le navigateur affiche l'heure de Paris.
 
 ## Sécurité (pour la matrice du dossier)
 
 - Aucun port publié pour l'API : seul Caddy (443, TLS 1.2+ ECDHE/AEAD, HSTS, CSP sans script en ligne, pas d'en-tête Server).
-- Argon2id ; même durée de réponse si l'email est inconnu ; 5 échecs en 5 min par IP ou par email → 429.
+- Argon2id ; même durée de réponse si l'email est inconnu ; 5 échecs en 5 min par IP réelle ou par email → 429.
+- IP réelle : uvicorn `--proxy-headers` lit le `X-Forwarded-For` posé par Caddy, qui écrase celui du client (non forgeable, testé).
 - JWT HS256 (algorithme imposé) dans un cookie `HttpOnly; Secure; SameSite=Strict` ; compte relu en base à chaque requête (désactivation immédiate) ; contrôle de l'en-tête `Origin` (CSRF, détournement de WebSocket).
 - Requêtes SQL paramétrées uniquement ; droits limités par PostgreSQL (vues, colonnes) en plus des rôles applicatifs.
 - Commandes MQTT validées strictement (actionneur, couleur, état, durée ≤ 10 s) ; images : JPEG vérifié par ses octets magiques, 2 Mo maximum, nom choisi par le serveur.
