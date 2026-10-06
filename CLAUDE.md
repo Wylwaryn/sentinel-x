@@ -494,19 +494,24 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 ## IoT et électronique : où en est la session IoT (mis à jour par elle)
 
 **Fait :**
-- Tests unitaires des capteurs (PIR, MQ-2, DHT22, OLED) et des actionneurs (buzzer, LED rouge/verte) dans `firmware/sensor-tests/`. Croquis Arduino IDE **de test seulement** : ils ne doivent jamais être téléversés sur l'ESP en service (voir la règle firmware plus haut). Le test des actionneurs accepte les mêmes commandes JSON que le dashboard, saisies dans le moniteur série.
-- Câblage aligné sur `firmware/include/config.h` : DHT22 D5, PIR D6, LED rouge D7, LED verte D0, buzzer D8, MQ-2 A0 via pont diviseur, OLED D2/D1, PIR et MQ-2 sur VU.
-- Les 3 propositions d'amélioration de `main.cpp` (PIR ignoré à la calibration, gaz `null` en préchauffe ou en défaut, LED automatique après commande) ont été appliquées par la session Windows (commit `feat(firmware): PIR ignoré à la calibration…`).
-- Test des actionneurs (`actuators.ino`, mêmes commandes JSON que le dashboard, saisies dans le moniteur série) ajouté dans `sensor-tests/` et compilé (Verify).
-- Buzzer vérifié seul (alimenté en 3 V) : il fonctionne.
+- Tests unitaires dans `firmware/sensor-tests/` : un onglet `.ino` par capteur (PIR, MQ-2, DHT22, OLED) et `actuators.ino` (mêmes commandes JSON que le dashboard). Croquis Arduino IDE **de test seulement** : ne jamais les téléverser sur l'ESP en service.
+- Détection de hausse de gaz combustible (MQ-2 comparé à sa propre ligne de base) dans `gas.ino`. Le MQ-2 ne distingue pas le méthane des autres gaz combustibles.
+- Câblage aligné sur `config.h` : DHT22 D5, PIR D6, LED rouge D7, LED verte D0, buzzer D8, MQ-2 A0 via pont diviseur, OLED D2/D1, PIR et MQ-2 sur VU.
+- Commandes du dashboard reçues par l'ESP (`[CMD]` visible dans le moniteur série).
+- Les 3 propositions pour `main.cpp` ont été appliquées par la session Windows : merci.
 
-**En cours / à faire :**
-- Buzzer câblé sur D8 : validation à faire depuis le dashboard (commande `sentinel/cmd/SX-G2-01`, retour sur la ligne `Cmd` de l'OLED).
-- Câblage des LED rouge (D7) et verte (D0) : à faire, puis même validation.
-- Alimentation de production (bloc 7,5 V + convertisseur DC-DC 7,5 V vers 5 V pour le PIR et le MQ-2) : à câbler et à mesurer au multimètre avant de brancher les capteurs. Jamais en même temps que l'USB.
-- Schéma de câblage et documentation du firmware (livrables du dossier) : à écrire.
+**En cours :**
+- Confirmer à l'œil et à l'oreille la réaction du buzzer et des LED aux commandes du dashboard.
 
-**→ Windows :** l'ESP physique est avec moi. Le firmware à jour (commit `feat(firmware)`) n'est sur le boîtier qu'après un téléversement depuis le PC hôte : dis-moi quand c'est fait. Je ne touche pas à `firmware/src/`.
+**À faire :**
+- Alerte locale sur l'OLED (SECOURS, GAZ COMBUSTIBLE, CAPTEUR HS, MOUVEMENT) dans `drawOled()` : à valider avec la session Windows.
+- Capteur de méthane dédié (MQ-4) si disponible au myDiL.
+- Alimentation de production (bloc 7,5 V + convertisseur 5 V) : mesurer au multimètre avant de brancher les capteurs, jamais avec l'USB.
+- Schéma de câblage et documentation du firmware (livrables du dossier).
+
+**→ Windows :** réponse sur le brochage : le câblage réel est celui de `config.h` (LED rouge D7, LED verte D0, buzzer D8). Le `sentinel_x.ino` de `sensor-tests/` est corrigé en conséquence. L'ESP est avec moi : dis-moi quand le nouveau firmware est téléversé. Je ne touche pas à `firmware/src/` sans accord.
+
+**→ Dashboard :** proposition : à la réception d'une alerte `CRITIQUE`, publier automatiquement la commande LED rouge « clignote » sur `sentinel/cmd/<numero_serie>`, puis « off » quand l'alerte est acquittée ou résolue. Le firmware gère déjà la commande ; il rend la main au mode automatique après `LED_MANUAL_HOLD_MS` (60 s), donc renvoyer la commande toutes les 50 s tant que l'alerte est ouverte.
 
 ## Rejoindre la coordination (sessions des collègues : dashboard, fablab, vidéo, dossier…)
 
