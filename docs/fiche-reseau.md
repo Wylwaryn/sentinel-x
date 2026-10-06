@@ -122,7 +122,7 @@ Tout ce qui n'est pas listé est refusé. C'est vérifié par des tests : par ex
 - **Autorité** : « Sentinel-X Root CA », EC P-256, valable jusqu'en octobre 2029. Empreinte SHA-256 `36:A8:B4:4A:07:7E:30:A1:E7:7A:6A:88:1E:C5:29:A9:AD:9A:69:D1:CF:08:59:62:BA:3D:90:78:5A:68:55:AD`.
 - **Certificats serveur** : Mosquitto, API d'ingestion, Caddy. Ils sont signés par l'autorité, et chacun contient les adresses par lesquelles on le joint. Mosquitto et Caddy : `IP:127.0.0.1` et `IP:192.168.137.1`. API d'ingestion : `IP:127.0.0.1`, puisqu'elle n'est joignable que depuis le PC hôte.
 - **Sur l'ESP** : le certificat de l'autorité est intégré au firmware comme ancre de confiance. L'ESP vérifie la chaîne et la date. Il se connecte par IP, car sa bibliothèque TLS (BearSSL) ne vérifie pas une IP dans le certificat : c'est un compromis documenté.
-- **Navigateurs** : installer le certificat de l'autorité (`ca.crt`, public) comme « autorité racine de confiance », en vérifiant d'abord son empreinte :
+- **Navigateurs** : installer le certificat de l'autorité, **`docs/sentinel-x-ca.crt` dans le dépôt** (public, aucune clé privée), comme « autorité racine de confiance », en vérifiant d'abord son empreinte :
   - Windows (Edge, Chrome) : double-clic sur `ca.crt`, puis Installer un certificat → Placer dans « Autorités de certification racines de confiance » ;
   - Firefox : Paramètres → Certificats → Autorités → Importer → cocher « identifier des sites web » ;
   - Mac : Trousseaux d'accès → « Toujours approuver » ;
