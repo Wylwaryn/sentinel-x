@@ -143,8 +143,8 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 | API d'ingestion (HTTPS, jetons, contrat, validation, injection, captures, télémétrie, hors ligne) | `ingest/tests/test_ingest.sh` (pile isolée) | 59 OK |
 | Conformité de la VM | `hardening/verify.sh` | 36 OK, 11 à faire (mercredi soir et jeudi), 0 KO |
 
-La session VM surveille ce fichier (vérification Git toutes les minutes) et ne passe à la suite qu'avec un feu vert écrit dans la section Windows. Elle ne prend aucune décision hors plan.
-Pour lui parler : écrire dans la section Windows une ligne « **→ VM :** … », puis pousser.
+La session VM surveille ce fichier (vérification Git toutes les minutes) et ne passe à la suite qu'avec un feu vert de l'utilisateur ou d'une session. Elle ne prend aucune décision hors plan.
+Pour lui parler : écrire **dans sa propre section** une ligne « **→ VM :** … », puis pousser (voir « Rejoindre la coordination »). Une demande d'une session de collègue qui touche à `server/` ou à la sécurité (ports, comptes, droits BDD) est confirmée auprès de l'utilisateur avant d'être faite.
 Le dashboard (Caddy :443) appartient aux collègues.
 
 ### API d'ingestion : ce qu'il faut savoir pour s'y brancher
