@@ -1,0 +1,88 @@
+# Sentinel-X : dashboard (API + Caddy :443), ajouté à la stack serveur SANS modifier server/.
+# Lancement, depuis server/ :
+#   sudo docker compose -f docker-compose.yml -f ../dashboard/docker-compose.yml up -d --build
+# Chemins relatifs à server/ (dossier du premier fichier -f) : .env, certs/ et volumes sont ceux de la stack.
+#
+#   net_dashboard (interne, défini dans server/) API dashboard <-> PostgreSQL / Mosquitto ; Caddy -> API
+#   net_web_edge  publication du port 443 (navigateurs du Wi-Fi de la table), sans NAT sortant
+services:
+  dashboard:
+    build: ../dashboard/api
+    image: sentinel-dashboard:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+    # Uniquement les secrets utiles à ce service (pas d'env_file : rien d'autre ne fuit).
+    environment:
+      DB_HOST: postgres
+      DB_NAME: ${POSTGRES_DB:?}
+      DB_USER: sentinel_dashboard
+      DB_PASSWORD: ${DASHBOARD_DB_PASSWORD:?}
+      MQTT_HOST: mosquitto
+      MQTT_USER: dashboard
+      MQTT_PASSWORD: ${MQTT_DASHBOARD_PASSWORD:?lancer sudo mosquitto/gen-passwd.sh}
+      DASHBOARD_JWT_SECRET: ${DASHBOARD_JWT_SECRET:?voir dashboard/.env.example}
+      DASHBOARD_ORIGINS: ${DASHBOARD_ORIGINS:-}
+    volumes:
+      - ./certs/ca.crt:/certs/ca.crt:ro
+      # Captures des alertes caméra écrites par l'API d'ingestion : lecture seule.
+      - captures:/data/captures:ro
+      - references:/data/references
+    # Aucun port publié : seul Caddy le joint, par net_dashboard.
+    networks:
+      - net_dashboard
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    pids_limit: 100
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  caddy:
+    build: ../dashboard/web
+    image: sentinel-web:latest
+    restart: unless-stopped
+    depends_on:
+      dashboard:
+        condition: service_started
+    # Utilisateur sans privilège : écoute sur 8443 dans le conteneur, publié en 443.
+    user: "10003:10003"
+    environment:
+      XDG_DATA_HOME: /tmp/data
+      XDG_CONFIG_HOME: /tmp/config
+      CADDY_SNI: ${CADDY_SNI:-sentinel-server}
+    volumes:
+      - ./certs/caddy:/certs:ro
+    ports:
+      # Redirection NAT VirtualBox 443 -> 10.0.2.15:443 (Wi-Fi de la table).
+      - "443:8443"
+    networks:
+      - net_dashboard
+      - net_web_edge
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    pids_limit: 100
+    mem_limit: 128m
+
+volumes:
+  # Images de référence ajoutées par les ADMIN (chemin_fichier = references/<uuid>.jpg).
+  references:
+
+networks:
+  net_web_edge:
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"

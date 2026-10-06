@@ -1,0 +1,5 @@
+# Pile de TEST isolée du dashboard (aucun port publié), utilisée par api/tests/test_dashboard.sh,
+# en plus de server/docker-compose.test.yml.
+services:
+  caddy:
+    ports: !reset []
