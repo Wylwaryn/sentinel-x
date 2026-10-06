@@ -344,6 +344,30 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 - L'image postgres fait confiance aux connexions locales par défaut. D'où `POSTGRES_INITDB_ARGS=--auth-local=scram-sha-256 --auth-host=scram-sha-256`.
 - La RTX 5050 (Blackwell) exige PyTorch `cu128` ou plus. Webcam USB = index 1 (l'index 0 est la caméra intégrée HP).
 
+## IoT et électronique : où en est la session IoT (mis à jour par elle)
+
+**Fait :**
+- Tests unitaires des capteurs (PIR, MQ-2, DHT22, OLED) dans `firmware/sensor-tests/`. Ce sont des croquis Arduino IDE **de test seulement** : ils ne doivent jamais être téléversés sur l'ESP en service (voir la règle firmware plus haut).
+- Câblage aligné sur `firmware/include/config.h` (DHT22 D5, PIR D6, LED rouge D7, LED verte D0, buzzer D8, MQ-2 A0 via pont diviseur, OLED D2/D1, PIR et MQ-2 sur VU).
+
+**Pas encore fait :**
+- Pas de code d'actionneurs ajouté dans `sensor-tests/` : buzzer et LED sont déjà gérés par `main.cpp`.
+- Câblage et test des actionneurs (LED, buzzer) sur le boîtier : à faire, puis à valider avec une commande `sentinel/cmd/SX-G2-01`.
+- Schéma de câblage et documentation du firmware (livrables du dossier) : à écrire.
+
+**→ Windows : propositions d'amélioration pour `firmware/src/main.cpp`** (à toi de décider et de téléverser, je ne touche pas au fichier) :
+
+1. **PIR au démarrage.** Le PIR n'est pas ignoré pendant la première minute après la mise sous tension. Pendant cette calibration, le HC-SR501 peut déclencher de faux mouvements. Ces faux `pir: true` sont envoyés au serveur et lus par la vision pour la fusion, ce qui peut déclencher une fausse alerte `FUSION` au démarrage du boîtier.
+   *Proposition :* forcer `r.pir = false` (et ne pas publier de changement) tant que `millis() - bootMs < 60000`.
+
+2. **Gaz pendant le préchauffage et valeurs bloquées.** Le MQ-2 est envoyé comme une vraie valeur dès le démarrage, alors que l'OLED affiche « prechauf. ». Une valeur bloquée à 0 ou à 1023 (fil mal branché) est aussi envoyée comme du vrai gaz au lieu de `null`. La maintenance prédictive peut alors la prendre pour une fuite au lieu d'un capteur défaillant.
+   *Proposition :* envoyer `"gaz_brut": null` pendant `MQ2_WARMUP_MS`, et quand la valeur est ≤ 2 ou ≥ 1021. Le modèle `Telemetry` accepte `null` et la colonne `mesure.gaz_brut` n'a pas de `NOT NULL`, mais à vérifier avec un message de test.
+
+3. **LED verte pilotée par le dashboard.** Dès que le dashboard envoie une commande sur la LED verte, le statut automatique « connecté » ne la contrôle plus : la ligne `if (lastCmd.indexOf("vert") < 0)` reste désactivée tant qu'aucune commande non verte n'arrive. Si le dashboard éteint la LED verte puis que la liaison est perdue, la LED ne clignote pas pour signaler la déconnexion.
+   *Proposition :* une variable séparée (par exemple `bool greenManual`) activée uniquement par les commandes vertes, avec un délai après lequel la LED repasse en mode automatique. Même principe pour la LED rouge en mode secours (`indexOf("rouge")`).
+
+Impact global : faible, la démo fonctionne sans ces changements. Les points 1 et 2 évitent de fausses alertes au démarrage devant le jury.
+
 ## Rejoindre la coordination (sessions des collègues : dashboard, fablab, vidéo, dossier…)
 
 1. **Lire ce fichier en entier** : décisions déjà prises, contrats (API, MQTT, BDD), ports, pièges.
