@@ -24,3 +24,7 @@ host/ids/logs/
 host/predictive/data/
 host/predictive/models/
 host/predictive/logs/
+
+# Firmware : secrets (Wi-Fi, mot de passe MQTT) et fichiers de compilation
+firmware/include/secrets.h
+firmware/.pio/

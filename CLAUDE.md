@@ -257,6 +257,14 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 - ✅ **Raccordé** : mot de passe `capteurs` récupéré seul (`SENTINEL_CAPTEURS_USER` / `SENTINEL_CAPTEURS_PASS`). Contre le vrai broker : TLS OK, télémétrie reçue, publication refusée. Contre l'API : 201 en `CAPTEURS_IA` sur `SX-G2-01`, 403 si le jeton tente `VISION_IA`. Ligne de test supprimée. Merci à la session VM pour l'étape 7.
 - Reste : le modèle est amorcé sur du synthétique. Le ré-entraîner sur la télémétrie réelle dès que l'ESP émet (`record --minutes 30`, puis `train`).
 
+**Firmware ESP8266 `firmware/` (6 oct., PlatformIO, compile : RAM 37 %, flash 40 %)** :
+- Fait par la session Windows, compilé et téléversé depuis le PC hôte (`.venv\Scripts\pio.exe run -t upload`).
+- `serie` = `client_id` = `SX-G2-01` ; MQTTS `192.168.137.1:8883`, compte `esp`, CA intégrée (`include/ca_cert.h`, publique) ; NTP, avec repli sur la date de compilation.
+- Télémétrie toutes les 5 s et à chaque changement du PIR ; commandes `sentinel/cmd/SX-G2-01` (buzzer, LED rouge/verte on/off/clignote) ; OLED ; mode secours local après 30 s sans broker.
+- Secrets dans `include/secrets.h` (ignoré par Git) : Wi-Fi saisi par l'utilisateur, mot de passe `esp` récupéré seul depuis la VM.
+- Brochage : OLED D2/D1, DHT22 D5, PIR D6, LED rouge D7, LED verte D0, buzzer D8, MQ-2 A0 via pont diviseur, PIR et MQ-2 sur VU (5 V USB).
+- Prochaine étape : téléverser dès que l'ESP est branché sur le PC hôte, puis vérifier les mesures en base.
+
 **Contrat avec l'API d'ingestion** (format `AlertIn` de `server/ingest/app/models.py`, qui fait foi) :
 - Vision : `POST https://127.0.0.1:8443/api/v1/alerts`, jeton `SENTINEL_VISION_TOKEN`. Champs envoyés : `type`, `level` et `source` dans le vocabulaire de la vision (traduits par l'API), `serie` (= `device_serie` dans `host/vision/config.json`), `score` (confiance YOLO), `pir_confirmed`, `track_id`, `zone`, `detail`, `ts`, `snapshot_jpeg_b64` (alertes critiques).
 - IDS : même route, jeton `SENTINEL_IDS_TOKEN`. `type`, `level` et `source=RESEAU_IA` en vocabulaire BDD, `serie` (ESP connu sinon `null`), `ip_source`, `score`, `message`, `detail` (`action`, `confiance_type`, caractéristiques). Le journal local `host/ids/logs/` garde l'événement complet.
@@ -289,7 +297,7 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 5. Durcissement de jeudi **préparé, pas appliqué** (VM, feu vert donné).
 6. Supervision et maintien en condition opérationnelle (VM, feu vert donné).
 7. Point d'accès 2,4 GHz, puis entraînement de l'IDS sur le trafic réel (utilisateur puis Windows).
-8. Firmware ESP8266 (équipe) : format de télémétrie dans la section VM, `serie = SX-G2-01`.
+8. Firmware ESP8266 : écrit et compilé (session Windows, `firmware/`). Reste à téléverser et vérifier.
 9. Maintenance prédictive `CAPTEURS_IA` : session Windows (`host/predictive/`) ; compte MQTT `capteurs` demandé à la VM.
 10. Dashboard + Caddy :443 (collègues), d'après `docs/fiche-api-dashboard.md`.
 
