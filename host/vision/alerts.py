@@ -18,7 +18,12 @@ def build_payload(alert, serie, snapshot_jpeg=None):
     payload = asdict(alert)
     payload["ts"] = datetime.now(timezone.utc).isoformat()
     payload["serie"] = serie
-    payload["score"] = alert.detail.get("conf")  # confiance YOLO de la détection, None pour le PIR seul
+    payload["score"] = alert.detail.get("conf")  # confiance YOLO (ou de la reconnaissance), None pour le PIR seul
+    if alert.detail.get("message"):
+        payload["message"] = alert.detail["message"][:500]
+    if alert.detail.get("id_personne") is not None:
+        # -> alerte.id_personne_reconnue (ignoré par l'API tant qu'elle ne gère pas ce champ)
+        payload["personne_reconnue"] = alert.detail["id_personne"]
     if snapshot_jpeg is not None:
         payload["snapshot_jpeg_b64"] = base64.b64encode(snapshot_jpeg).decode()
     return payload

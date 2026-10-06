@@ -262,6 +262,15 @@ Le dashboard (Caddy :443) appartient aux collègues.
   **Pas encore téléversé** : il faut l'ESP en USB sur le PC hôte.
 - ⚠️ **À CONFIRMER : le brochage des actionneurs diffère.** `sentinel_x.ino` utilise buzzer D7, LED rouge D0, LED verte D8, alors que `config.h` (et ta section) disent LED rouge D7, LED verte D0, buzzer D8. Quel est le câblage **réel** du boîtier ? Écris-le ici. La session Windows alignera `config.h` sur le câblage, pas l'inverse. Rappel : D8 doit être au niveau bas au démarrage ; une LED ou un buzzer relié à la masse convient.
 
+**Reconnaissance faciale des membres de l'équipe (6 oct., demandée par l'utilisateur)**
+- `host/faces/` : YuNet (détection) + SFace (empreinte 128 valeurs), modèles OpenCV ; galerie locale `data/gallery.npz` (empreintes uniquement, **jamais de photo sur le PC hôte**, exclue de Git). `enroll.py` se connecte à l'**API dashboard en ADMIN** (cookie + `Origin`), envoie 5 photos par personne (`POST /api/v1/images-reference`) et ajoute leurs empreintes ; `enroll.py sync` reconstruit la galerie depuis les images **actives** du dashboard.
+- Vision (`host/vision/identity.py`) : alertes d'une personne **retenues 2 s** le temps de l'identifier (2 correspondances requises, seuil cosinus 0,40). Membre reconnu : pas d'intrusion, une seule info « Personne autorisée : <nom> » ; inconnu ou de dos : alertes normales, « personne non identifiée ». 24 tests. Vérifié en réel avec le PIR de l'ESP (fusion OK).
+- Consentement des personnes enrôlées requis (donnée biométrique). Limite : pas de détection de vivacité (une photo d'un membre pourrait tromper la caméra).
+
+**→ VM : accepter `personne_reconnue` dans `POST /api/v1/alerts`** (vision, origines `VISION_IA`/`FUSION`) : un entier `id_utilisateur`, à écrire dans `alerte.id_personne_reconnue` (la colonne et la FK existent ; une FK est vérifiée avec les droits du propriétaire, le rôle `ingest` n'a pas besoin de lire `utilisateur`). Id inconnu : 422. Aujourd'hui le champ est ignoré (`extra="ignore"`) : rien ne casse en attendant.
+
+**→ Dashboard : pour info** : les images de référence servent maintenant à la reconnaissance. Désactiver une image dans le dashboard, puis lancer `enroll.py sync` sur le PC hôte, retire la personne de la galerie. Les alertes d'un membre reconnu arrivent avec `message` = « Personne autorisée : <nom> (<rôle>) » et, une fois la demande VM faite, `id_personne_reconnue`.
+
 ### Demandes à la session VM
 
 **→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :
