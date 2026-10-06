@@ -48,6 +48,39 @@ FICHIER_OK = re.compile(r"^(captures|references)/[0-9a-f]{32}\.jpg$")
 EMAIL_OK = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
+# LED rouge du boîtier pilotée par les alertes CRITIQUE (demande IoT). Le firmware tient une commande LED
+# pendant duree_ms (30 min max, LED_MAX_HOLD_MS) : une seule commande suffit, pas de renvoi périodique.
+LED_CRITIQUE_ON = {"actionneur": "led", "couleur": "rouge", "etat": "clignote", "duree_ms": 1_800_000}
+LED_CRITIQUE_OFF = {"actionneur": "led", "couleur": "rouge", "etat": "off"}
+
+
+async def led_sur_alerte(alerte: dict):
+    """Nouvelle alerte CRITIQUE : LED rouge clignotante. Alerte CRITIQUE acquittée ou résolue et plus
+    aucune en attente sur ce boîtier : LED éteinte. Commande envoyée par l'API (compte MQTT dashboard)."""
+    if alerte.get("niveau") != "CRITIQUE" or not alerte.get("id_dispositif"):
+        return
+    id_dispositif = alerte["id_dispositif"]
+    try:
+        if alerte.get("operation") == "INSERT" and alerte.get("statut") == "NOUVELLE":
+            commande = LED_CRITIQUE_ON
+        elif alerte.get("operation") == "UPDATE" and alerte.get("statut") != "NOUVELLE"                 and await db.critiques_en_attente(id_dispositif) == 0:
+            commande = LED_CRITIQUE_OFF
+        else:
+            return
+        serie = await db.numero_serie(id_dispositif)
+        if not serie or not SERIE_OK.match(serie):
+            return
+        if await mqtt.commande(serie, commande):
+            log.info("LED automatique %s vers %s (alerte %s)", commande["etat"], serie, alerte.get("id_alerte"))
+        else:
+            log.warning("LED automatique non envoyée vers %s : broker MQTT indisponible", serie)
+    except Exception:
+        log.exception("LED automatique : échec pour l'alerte %s", alerte.get("id_alerte"))
+
+
+listener.sur_alerte = led_sur_alerte
+
+
 @asynccontextmanager
 async def lifespan(_app):
     await db.open()
