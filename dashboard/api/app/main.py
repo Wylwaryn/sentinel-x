@@ -5,7 +5,11 @@ Derrière Caddy (seul point d'entrée, HTTPS/WSS :443) ; aucun port publié.
   - WS    /ws           mesures et alertes (LISTEN/NOTIFY), flux webcam (MQTT)
 
 Le compte de service SERVICE_VISION (synchronisation des visages) n'a droit qu'à la lecture des images
-de référence : toute autre route le refuse (403), y compris le WebSocket.
+de référence : toute autre route le refuse (403), y compris le WebSocket. Il n'est accepté que depuis
+les IP de SERVICE_VISION_IPS (le PC hôte, 10.0.2.2 dans la VM), à la connexion et à chaque requête.
+
+IP du client : uvicorn --proxy-headers (Dockerfile) remplace request.client par l'IP que Caddy met dans
+X-Forwarded-For. Caddy écrase ce que le client envoie (pas de trusted_proxies) : l'en-tête ne se forge pas.
 """
 import asyncio
 import logging
@@ -25,8 +29,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from . import config
 from .db import PERIODES, Database
 from .realtime import Client, Hub, MqttLink, PgListener
-from .security import (COOKIE, PEUT_ADMINISTRER, PEUT_AGIR, PEUT_LIRE, PEUT_LIRE_IMAGES, ROLES, LoginLimiter,
-                       Tokens, hash_password, verify_password)
+from .security import (COOKIE, PEUT_ADMINISTRER, PEUT_AGIR, PEUT_LIRE, PEUT_LIRE_IMAGES, ROLES, SERVICE_VISION,
+                       LoginLimiter, Tokens, hash_password, verify_password)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s : %(message)s")
 log = logging.getLogger("dashboard")
@@ -67,6 +71,15 @@ async def validation_error(_request, exc: RequestValidationError):
     return JSONResponse(status_code=422, content={"detail": errors})
 
 
+def _ip(request: Request) -> str:
+    """IP réelle du navigateur (posée par Caddy, voir l'en-tête du fichier)."""
+    return request.client.host if request.client else "?"
+
+
+def _service_hors_hote(role: str, ip: str) -> bool:
+    return role == SERVICE_VISION and ip not in settings.service_vision_ips
+
+
 def _origine_ok(origin: str | None) -> bool:
     return not settings.allowed_origins or origin in settings.allowed_origins
 
@@ -104,7 +117,11 @@ async def session(request: Request) -> Utilisateur:
     trouve = await _utilisateur(request.cookies.get(COOKIE))
     if trouve is None:
         raise HTTPException(401, "non connecté")
-    return trouve[0]
+    u = trouve[0]
+    if _service_hors_hote(u.role, _ip(request)):
+        log.warning("compte de service %s refusé depuis %s (hors SERVICE_VISION_IPS)", u.id_utilisateur, _ip(request))
+        raise HTTPException(403, "compte de service : accès réservé au PC hôte")
+    return u
 
 
 async def connecte(u: Annotated[Utilisateur, Depends(session)]) -> Utilisateur:
@@ -159,7 +176,7 @@ class LoginIn(BaseModel):
 
 @app.post("/api/v1/auth/login")
 async def login(body: LoginIn, request: Request):
-    ip = request.client.host if request.client else "?"
+    ip = _ip(request)
     cles = (f"ip:{ip}", f"email:{body.email.strip().lower()}")
     if limiter.bloque(*cles):
         log.warning("connexion bloquée (trop d'échecs) depuis %s", ip)
@@ -172,6 +189,13 @@ async def login(body: LoginIn, request: Request):
         limiter.echec(*cles)
         log.warning("échec de connexion depuis %s", ip)
         raise HTTPException(401, "email ou mot de passe incorrect")
+
+    if _service_hors_hote(row["role"], ip):
+        # Bon mot de passe mais mauvaise machine : compté comme un échec (mot de passe peut-être volé).
+        limiter.echec(*cles)
+        log.warning("compte de service %s : connexion refusée depuis %s (hors SERVICE_VISION_IPS)",
+                    row["id_utilisateur"], ip)
+        raise HTTPException(403, "compte de service : accès réservé au PC hôte")
 
     limiter.succes(*cles)
     log.info("connexion de l'utilisateur %s (%s) depuis %s", row["id_utilisateur"], row["role"], ip)
@@ -304,7 +328,7 @@ class CompteIn(BaseModel):
 @app.post("/api/v1/utilisateurs", status_code=201)
 async def creer_utilisateur(body: CompteIn, request: Request, u: Admin):
     """Création d'un compte par un ADMIN, qui doit ressaisir SON mot de passe : un cookie volé ne suffit pas."""
-    ip = request.client.host if request.client else "?"
+    ip = _ip(request)
     cles = (f"ip:{ip}", f"admin:{u.id_utilisateur}")
     if limiter.bloque(*cles):
         raise HTTPException(429, "trop de tentatives, réessayez dans quelques minutes")

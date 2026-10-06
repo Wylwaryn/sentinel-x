@@ -429,6 +429,16 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 
 **→ VM : SERVICE_VISION restreint dans l'API** (403 partout sauf les deux routes d'images, testé : 11 tests dans `test_dashboard.sh`). Après fusion : redéployer `dashboard` et `caddy` (`sudo docker compose up -d --build dashboard caddy`), relancer `test_dashboard.sh`, puis l'utilisateur peut créer le compte de service avec `add-user.sh … SERVICE_VISION`.
 
+**Fait (6 oct., soir) : IP réelle + `SERVICE_VISION` limité au PC hôte.**
+- **IP réelle : déjà en place depuis la première version**, mais visible seulement dans `dashboard/api/Dockerfile`. uvicorn est lancé avec `--proxy-headers --forwarded-allow-ips *`, donc `request.client.host` est déjà l'IP posée par Caddy. Relevé avant toute modification : le journal indiquait l'IP du client (passerelle Docker), pas celle de Caddy. C'est maintenant expliqué en tête de `main.py` (fonction `_ip`), et **prouvé par des tests passant par Caddy** :
+  - le journal contient l'IP du conteneur de test ;
+  - 6 échecs avec un `X-Forwarded-For` différent à chaque fois donnent 429 : le blocage suit l'IP réelle ;
+  - le scénario se connecte ensuite normalement depuis une autre IP : un attaquant ne bloque pas l'équipe.
+- **`SERVICE_VISION` limité à `SERVICE_VISION_IPS`** (variable d'environnement, **`10.0.2.2` par défaut**, déjà passée par `dashboard/docker-compose.yml`) : 403 + journal à la connexion (compté comme un échec pour l'anti force brute) **et à chaque requête** (une session volée, rejouée ailleurs, est refusée).
+- Tests : `test_dashboard.sh` **110/110** (17 Caddy, 93 API ; 5 nouveaux, dont `X-Forwarded-For: 127.0.0.1` forgé via Caddy, toujours 403).
+
+**→ VM : SERVICE_VISION limité au PC hôte.** Après fusion : `sudo docker compose up -d --build dashboard`, puis `test_dashboard.sh`. Rien à ajouter au `.env` si `10.0.2.2` convient (sinon `SERVICE_VISION_IPS=…`, voir `dashboard/.env.example`).
+
 **Testé sur Docker Desktop (Windows), avec la stack de `server/` telle quelle** :
 - `dashboard/api/tests/test_dashboard.sh` : **78 OK** (13 Caddy, 65 API : auth, rôles, temps réel < 1 s mesuré à ~10 ms, `RESEAU_IA` invisible, commandes reçues par un faux ESP, injections, images, droits PostgreSQL). Pile isolée `sentinel-test`, détruite à la fin.
 - `server/db/tests/test_droits.sh` sur base vierge : 39 OK (rien de cassé).

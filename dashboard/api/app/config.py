@@ -25,6 +25,7 @@ class Settings:
     session_hours: float
     cookie_secure: bool
     allowed_origins: frozenset[str]   # vide = Origin non vérifié (dev uniquement)
+    service_vision_ips: frozenset[str]  # IP réelles autorisées pour le compte SERVICE_VISION
     captures_dir: str
     references_dir: str
     max_image_bytes: int
@@ -35,6 +36,8 @@ def load() -> Settings:
     if len(jwt_secret) < 32:
         raise RuntimeError("DASHBOARD_JWT_SECRET trop court (32 caractères minimum)")
     origins = os.environ.get("DASHBOARD_ORIGINS", "")
+    # Dans la VM, seul le PC hôte arrive en 10.0.2.2 (passerelle NAT VirtualBox) ; le Wi-Fi garde ses vraies IP.
+    service_ips = os.environ.get("SERVICE_VISION_IPS", "10.0.2.2")
 
     return Settings(
         db_host=os.environ.get("DB_HOST", "postgres"),
@@ -51,6 +54,7 @@ def load() -> Settings:
         # Cookie « Secure » : envoyé uniquement en HTTPS (Caddy). Désactivable pour le dev en HTTP.
         cookie_secure=os.environ.get("COOKIE_SECURE", "true").lower() != "false",
         allowed_origins=frozenset(o.strip() for o in origins.split(",") if o.strip()),
+        service_vision_ips=frozenset(i.strip() for i in service_ips.split(",") if i.strip()),
         captures_dir=os.environ.get("CAPTURES_DIR", "/data/captures"),
         references_dir=os.environ.get("REFERENCES_DIR", "/data/references"),
         max_image_bytes=int(os.environ.get("MAX_IMAGE_BYTES", str(2 * 1024 * 1024))),
