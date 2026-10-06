@@ -87,6 +87,8 @@ class PgListener:
         self.conninfo = conninfo
         self.hub = hub
         self.connected = False
+        self.sur_alerte = None      # coroutine appelée pour chaque alerte notifiée (LED automatique)
+        self._taches: set = set()   # références gardées : une tâche sans référence peut être détruite
 
     async def run(self):
         premiere = True
@@ -115,6 +117,11 @@ class PgListener:
             return
         type_ = "mesure" if canal == "sentinel_mesure" else "alerte"
         self.hub.texte({"type": type_, "data": _avec_instant(data)})
+        if type_ == "alerte" and self.sur_alerte is not None:
+            # En tâche séparée : le relais vers les navigateurs ne doit jamais attendre MQTT ou la base.
+            tache = asyncio.create_task(self.sur_alerte(data))
+            self._taches.add(tache)
+            tache.add_done_callback(self._taches.discard)
 
 
 class MqttLink:
