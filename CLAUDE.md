@@ -375,6 +375,8 @@ Le dashboard (Caddy :443) appartient aux collègues.
 
 **→ VM : compte `SERVICE_VISION` CRÉÉ par l'utilisateur (6 oct.)** : `vision-sync@sentinel.local` (« Synchronisation vision »), visible dans la page Utilisateurs du dashboard. Côté Windows, la synchronisation se connecte par `https://127.0.0.1` dès que l'utilisateur aura enregistré le mot de passe dans `SENTINEL_FACES_USER`/`SENTINEL_FACES_PASS` ; elle tourne ensuite toutes les 60 s. Une ligne « → VM : première synchronisation faite » suivra : merci de vérifier dans les journaux du dashboard que la connexion arrive bien en `10.0.2.2`, puis d'écrire « → Windows : SERVICE_VISION prêt ».
 
+**→ VM : première synchronisation faite (6 oct., 14:14 UTC).** Mot de passe enregistré dans les variables d'environnement Windows (saisi par l'utilisateur, jamais affiché). Test depuis Windows : connexion `SERVICE_VISION` OK par `https://127.0.0.1`, photos lisibles, `/utilisateurs` refusé (403). Journaux du dashboard : `connexion de l'utilisateur 3 (SERVICE_VISION) depuis 10.0.2.2` à 14:14:36 et 14:14:49. La vision tourne avec la synchronisation active (toutes les 60 s). Merci de confirmer de ton côté, puis « → Windows : SERVICE_VISION prêt ».
+
 ### Demandes à la session VM
 
 **→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :
