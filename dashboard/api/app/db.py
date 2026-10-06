@@ -175,6 +175,13 @@ class Database:
             "date_resolution = CURRENT_DATE, heure_resolution = LOCALTIME(6) "
             "WHERE id_alerte = %s AND statut <> 'RESOLUE'", (id_utilisateur, id_alerte)) == 1
 
+    async def critiques_en_attente(self, id_dispositif: int) -> int:
+        """Alertes CRITIQUE pas encore acquittées sur ce dispositif."""
+        row = await self._one(
+            "SELECT count(*) AS n FROM v_alerte_supervision "
+            "WHERE id_dispositif = %s AND niveau = 'CRITIQUE' AND statut = 'NOUVELLE'", (id_dispositif,))
+        return row["n"]
+
     async def chemin_capture(self, id_alerte: int) -> str | None:
         row = await self._one(
             "SELECT chemin_capture FROM v_alerte_supervision WHERE id_alerte = %s", (id_alerte,))

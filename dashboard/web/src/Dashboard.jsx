@@ -298,7 +298,13 @@ export default function Dashboard({ utilisateur, onDeconnexion, onSessionExpiree
             </div>
           </div>
 
-          {estAdmin && (
+          {/* Comptes et visages (biométrie) : PC hôte seulement, l'API le vérifie aussi */}
+          {estAdmin && !utilisateur.poste_hote && (
+            <section className="panneau vide">
+              Utilisateurs et images de référence : disponibles uniquement sur le PC hôte.
+            </section>
+          )}
+          {estAdmin && utilisateur.poste_hote && (
             <>
               <Utilisateurs moi={utilisateur} version={versionComptes}
                 onCree={(id) => { setVersionComptes((v) => v + 1); setAPhotographier(id); }} />

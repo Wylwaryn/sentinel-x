@@ -23,7 +23,7 @@ sudo pki/pki.sh server caddy 10003 DNS:sentinel-server,DNS:localhost,IP:127.0.0.
 sudo docker compose -f docker-compose.yml -f ../dashboard/docker-compose.yml up -d --build dashboard caddy
 # 4. Comptes (mot de passe demandé au clavier, haché en Argon2id)
 sudo ../dashboard/api/add-user.sh admin@sentinel.local "Administrateur" ADMIN
-# 5. Tests sur une pile isolée (110 tests : Caddy, IP réelle, API, temps réel, rôles, comptes, MQTT, injections)
+# 5. Tests sur une pile isolée (132 tests : Caddy, IP réelle, PC hôte, API, temps réel, rôles, comptes, MQTT, LED auto, injections)
 sudo ../dashboard/api/tests/test_dashboard.sh
 ```
 
@@ -51,6 +51,12 @@ Code de fermeture 4401 = session absente ou expirée, 4403 = origine refusée ou
 
 `SERVICE_VISION` (synchronisation des visages, créé uniquement au terminal avec `add-user.sh`) : refusé partout (403) sauf les deux `GET` d'images,
 et seulement depuis `SERVICE_VISION_IPS` (`10.0.2.2` par défaut : le PC hôte vu de la VM), à la connexion et à chaque requête.
+
+Utilisateurs et images de référence : ADMIN **et** PC hôte (`HOST_ONLY_IPS`, défaut `10.0.2.2,192.168.137.1`), sinon 403.
+`/auth/me` renvoie `poste_hote` pour que l'interface masque ces deux sections ailleurs.
+
+LED rouge automatique : à chaque nouvelle alerte `CRITIQUE`, l'API publie `led rouge clignote` (`duree_ms` 30 min) sur
+`sentinel/cmd/<numero_serie>`, puis `off` quand plus aucune `CRITIQUE` n'attend d'acquittement sur ce boîtier.
 
 Les instants sont envoyés en UTC (`"instant": "2026-10-07T14:02:11.482913Z"`) ; le navigateur affiche l'heure de Paris.
 

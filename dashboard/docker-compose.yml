@@ -28,6 +28,8 @@ services:
       DASHBOARD_ORIGINS: ${DASHBOARD_ORIGINS:-}
       # Compte SERVICE_VISION accepté seulement depuis ces IP (PC hôte = passerelle NAT VirtualBox)
       SERVICE_VISION_IPS: ${SERVICE_VISION_IPS:-10.0.2.2}
+      # Utilisateurs et images de référence : ADMIN depuis le PC hôte seulement
+      HOST_ONLY_IPS: ${HOST_ONLY_IPS:-10.0.2.2,192.168.137.1}
     volumes:
       - ./certs/ca.crt:/certs/ca.crt:ro
       # Captures des alertes caméra écrites par l'API d'ingestion : lecture seule.

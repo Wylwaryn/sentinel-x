@@ -11,7 +11,7 @@ docker info >/dev/null 2>&1 || { echo "Docker inaccessible (lancer avec sudo dan
 
 # Le scénario parle à l'API en direct (127.0.0.1, dans son conteneur) : c'est son « PC hôte ».
 # Tout ce qui passe par Caddy a l'IP du conteneur de test, donc hors liste.
-export SERVICE_VISION_IPS=127.0.0.1
+export SERVICE_VISION_IPS=127.0.0.1 HOST_ONLY_IPS=127.0.0.1
 export COMPOSE_ARGS="-p sentinel-test -f docker-compose.yml -f docker-compose.test.yml -f ../dashboard/docker-compose.yml -f ../dashboard/docker-compose.test.yml"
 DC=(docker compose $COMPOSE_ARGS)
 NET=sentinel-test_net_dashboard
@@ -86,6 +86,20 @@ login() {
 check "$(login service@test.local "$PASSWORD")" 403 "SERVICE_VISION depuis une autre machine que le PC hôte : 403"
 check "$(login service@test.local "$PASSWORD" 'X-Forwarded-For: 127.0.0.1')" 403 \
     "X-Forwarded-For forgé (IP autorisée) : toujours 403, Caddy l'écrase"
+# ADMIN connecté depuis une autre machine que le PC hôte (cookie gardé dans le conteneur de test)
+printf '{"email":"admin@test.local","password":"%s"}' "$PASSWORD" | docker exec -i "$C" sh -c 'cat > /tmp/login'
+# (curl ne renvoie pas un cookie posé pour un hôte sans point comme « sentinel-server » : on le repasse à la main)
+"${CURL[@]}" -o /dev/null -D /tmp/entetes -H 'Content-Type: application/json' \
+    -H "Origin: $(envval DASHBOARD_ORIGINS | cut -d, -f1)" --data-binary @/tmp/login $URL/api/v1/auth/login
+SESSION_ADMIN=$(docker exec "$C" grep -io 'sentinel_session=[^;]*' /tmp/entetes)
+check "$("${CURL[@]}" -H "Cookie: $SESSION_ADMIN" $URL/api/v1/auth/me | grep -o '"poste_hote":[a-z]*')" '"poste_hote":false' \
+    "ADMIN hors du PC hôte : /auth/me indique poste_hote false"
+check "$("${CURL[@]}" -o /dev/null -w '%{http_code}' -H "Cookie: $SESSION_ADMIN" $URL/api/v1/utilisateurs)" 403 \
+    "ADMIN hors du PC hôte : utilisateurs refusés (403)"
+check "$("${CURL[@]}" -o /dev/null -w '%{http_code}' -H "Cookie: $SESSION_ADMIN" -H 'X-Forwarded-For: 127.0.0.1' $URL/api/v1/images-reference)" 403 \
+    "ADMIN hors du PC hôte + X-Forwarded-For forgé : images refusées (403)"
+"${DC[@]}" logs dashboard 2>/dev/null | grep -q "refusé hors du PC hôte depuis $IP_TESTEUR " \
+    && ok "journal : ADMIN refusé hors du PC hôte, avec son IP réelle" || ko "refus hors PC hôte absent du journal"
 "${DC[@]}" logs dashboard 2>/dev/null | grep -q "refusée depuis $IP_TESTEUR " \
     && ok "journal : IP réelle du client ($IP_TESTEUR), pas celle de Caddy" || ko "IP réelle absente du journal"
 for i in 1 2 3 4 5 6; do
