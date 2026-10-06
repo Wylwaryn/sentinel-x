@@ -15,11 +15,15 @@ from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatc
 log = logging.getLogger("dashboard.security")
 
 COOKIE = "sentinel_session"
-ROLES = ("LECTEUR", "OPERATEUR", "ADMIN")
+ROLES = ("LECTEUR", "OPERATEUR", "ADMIN")       # rôles des personnes (créables depuis le dashboard)
+SERVICE_VISION = "SERVICE_VISION"               # compte de service (créé au terminal de la VM uniquement)
 
 # Droits applicatifs (fiche API dashboard, §5)
+PEUT_LIRE = frozenset(ROLES)                    # interface, dispositifs, alertes, vidéo
 PEUT_AGIR = frozenset({"OPERATEUR", "ADMIN"})   # acquitter, résoudre, buzzer, LEDs
-PEUT_ADMINISTRER = frozenset({"ADMIN"})         # images de référence
+PEUT_ADMINISTRER = frozenset({"ADMIN"})         # utilisateurs, images de référence
+# Synchronisation des visages (host/faces) : lecture des images de référence, et RIEN d'autre.
+PEUT_LIRE_IMAGES = frozenset({"ADMIN", SERVICE_VISION})
 
 _hasher = PasswordHasher()  # Argon2id, paramètres recommandés par la RFC 9106
 # Hash d'un mot de passe jetable : vérifié quand l'email est inconnu, pour que la réponse
