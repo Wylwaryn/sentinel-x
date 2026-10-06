@@ -42,8 +42,9 @@ for role in ADMIN OPERATEUR LECTEUR; do
         || ko "création du compte $role"
 done
 SENTINEL_PASSWORD=$PASSWORD ../dashboard/api/add-user.sh "inactif@test.local" "Compte désactivé" OPERATEUR </dev/null >/dev/null
+SENTINEL_PASSWORD=$PASSWORD ../dashboard/api/add-user.sh "service@test.local" "Synchronisation vision" SERVICE_VISION </dev/null >/dev/null     || ko "création du compte SERVICE_VISION (terminal)"
 sql "UPDATE utilisateur SET actif = false WHERE email = 'inactif@test.local'"
-check "$(sql "SELECT count(*) FROM utilisateur WHERE mot_de_passe_hash LIKE '\$argon2id\$%'")" 4 "mots de passe hachés en Argon2id"
+check "$(sql "SELECT count(*) FROM utilisateur WHERE mot_de_passe_hash LIKE '\$argon2id\$%'")" 5 "mots de passe hachés en Argon2id"
 
 envval() { grep -E "^$1=" .env | tail -n1 | cut -d= -f2-; }
 
@@ -68,7 +69,8 @@ check "$("${CURL[@]}" -o /dev/null -w '%{http_code}' $URL/healthz)" 200 "route i
 check "$(docker exec "$C" curl -s -o /dev/null -w '%{http_code}' http://caddy:8443/)" 400 "HTTP en clair refusé"
 check "$(docker exec "$C" curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://dashboard:8000/healthz)" 200 \
     "API joignable seulement sur le réseau interne (aucun port publié)"
-check "$("${DC[@]}" port dashboard 8000 2>/dev/null)" "" "aucun port publié pour l'API"
+# docker compose port renvoie "" (Docker Desktop) ou ":0" (Compose v5 dans la VM) : on lit la config du conteneur.
+check "$(docker inspect "$("${DC[@]}" ps -q dashboard)" --format '{{json .HostConfig.PortBindings}}')" "{}" "aucun port publié pour l'API"
 
 echo "== Scénario API (dans le conteneur dashboard) =="
 ORIGIN=$(envval DASHBOARD_ORIGINS | cut -d, -f1)

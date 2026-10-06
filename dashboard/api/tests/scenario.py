@@ -272,6 +272,56 @@ async def main():
     check(admin_sql("SELECT active FROM image_reference WHERE id_image_reference = %s", (id_image,))[0], False,
           "image désactivée en base")
 
+    print("== Compte de service SERVICE_VISION (lecture des images uniquement) ==")
+    st, service, _ = login("service@test.local", S["password"])
+    check(st, 200, "connexion du compte de service")
+    images = corps_json("GET", "/api/v1/images-reference", cookie=service)
+    check(bool(images) and all({"utilisateur_role", "utilisateur_actif"} <= set(i) for i in images), True,
+          "liste des images avec utilisateur_role et utilisateur_actif")
+    check(code("GET", f"/api/v1/images-reference/{id_image}/fichier", cookie=service), 200, "lecture d'une image")
+    for methode, chemin, corps, label in [
+        ("GET", "/api/v1/dispositifs", None, "dispositifs"),
+        ("GET", f"/api/v1/dispositifs/{dev}/mesures", None, "mesures"),
+        ("GET", "/api/v1/alertes", None, "alertes"),
+        ("GET", f"/api/v1/alertes/{id_alerte}/capture", None, "captures"),
+        ("GET", "/api/v1/utilisateurs", None, "liste des utilisateurs"),
+        ("POST", f"/api/v1/alertes/{id_alerte}/acquitter", None, "acquitter"),
+        ("POST", f"/api/v1/dispositifs/{dev}/commandes", cmd, "commandes"),
+        ("PATCH", f"/api/v1/images-reference/{id_image}", {"active": True}, "modifier une image"),
+    ]:
+        check(code(methode, chemin, corps, cookie=service), 403, f"service : {label} refusé (403)")
+    check(code("POST", f"/api/v1/images-reference?id_utilisateur={uid}", JPEG, cookie=service, type_="image/jpeg"),
+          403, "service : ajout d'image refusé (403)")
+    check(await fermeture(service), 4403, "service : WebSocket refusé (4403)")
+
+    print("== Utilisateurs (ADMIN) ==")
+    compte = {"nom": "Nouveau membre", "email": "Nouveau@Test.local", "role": "LECTEUR",
+              "mot_de_passe": "un-mot-de-passe-solide", "mot_de_passe_admin": S["password"]}
+    check(code("POST", "/api/v1/utilisateurs", {**compte, "mot_de_passe_admin": "faux"}, cookie=admin), 403,
+          "mauvais mot de passe ADMIN ressaisi : 403")
+    check(code("POST", "/api/v1/utilisateurs", compte, cookie=operateur), 403, "OPERATEUR ne peut pas créer de compte")
+    check(code("POST", "/api/v1/utilisateurs", {**compte, "role": "SERVICE_VISION"}, cookie=admin), 422,
+          "rôle SERVICE_VISION refusé depuis l'API")
+    check(code("POST", "/api/v1/utilisateurs", {**compte, "mot_de_passe": "court"}, cookie=admin), 422,
+          "mot de passe de moins de 12 caractères : 422")
+    check(code("POST", "/api/v1/utilisateurs", {**compte, "actif": False}, cookie=admin), 422, "champ en trop : 422")
+    st, b, _ = http("POST", "/api/v1/utilisateurs", compte, cookie=admin)
+    check(st, 201, "ADMIN crée un compte LECTEUR")
+    nouveau = json.loads(b).get("id_utilisateur") if st == 201 else 0
+    check(admin_sql("SELECT email, mot_de_passe_hash LIKE '$argon2id$%%', actif FROM utilisateur WHERE id_utilisateur = %s",
+                    (nouveau,)), ("nouveau@test.local", True, True), "email normalisé, hash Argon2id, compte actif")
+    check(login("nouveau@test.local", "un-mot-de-passe-solide")[0], 200, "le nouveau compte se connecte")
+    check(code("POST", "/api/v1/utilisateurs", {**compte, "email": " NOUVEAU@test.local"}, cookie=admin), 409,
+          "email déjà utilisé : 409")
+    check(code("PATCH", f"/api/v1/utilisateurs/{nouveau}", {"actif": False}, cookie=admin), 200, "désactiver le compte")
+    check(login("nouveau@test.local", "un-mot-de-passe-solide")[0], 401, "compte désactivé : connexion refusée")
+    moi = corps_json("GET", "/api/v1/auth/me", cookie=admin)["utilisateur"]["id_utilisateur"]
+    check(code("PATCH", f"/api/v1/utilisateurs/{moi}", {"actif": False}, cookie=admin), 409,
+          "un ADMIN ne peut pas se désactiver lui-même")
+    check(code("PATCH", f"/api/v1/utilisateurs/{nouveau}", {"actif": True}, cookie=operateur), 403,
+          "OPERATEUR ne peut pas réactiver un compte")
+    check(code("PATCH", "/api/v1/utilisateurs/999999", {"actif": True}, cookie=admin), 404, "compte inconnu : 404")
+
     print("== Droits PostgreSQL du rôle dashboard (défense en profondeur) ==")
     check(dashboard_sql("SELECT * FROM alerte"), "InsufficientPrivilege", "table alerte brute : refusée")
     check(dashboard_sql("UPDATE v_alerte_supervision SET niveau = 'INFORMATION'"), "InsufficientPrivilege", "changer un niveau : refusé")
