@@ -83,6 +83,9 @@ class AlertIn(BaseModel):
                                 validation_alias=AliasChoices("score_ia", "score"))
     # Réaction de l'IDS (alerte / bloquee) : journalisée, pas stockée en base.
     action: str | None = Field(default=None, max_length=30, pattern=r"^[a-z_]+$")
+    # Membre de l'équipe reconnu par la vision (id_utilisateur), alertes caméra uniquement.
+    personne_reconnue: int | None = Field(default=None, ge=1, le=2_147_483_647,
+                                          validation_alias=AliasChoices("personne_reconnue", "id_personne_reconnue"))
     # JPEG 640x480 : environ 100 Ko en base64. La taille du corps est déjà bornée par le middleware.
     snapshot_jpeg_b64: str | None = None
 
