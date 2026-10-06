@@ -395,6 +395,15 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 - Comptes : `dashboard/api/add-user.sh` (mot de passe au clavier, haché dans le conteneur, inséré avec le compte admin PostgreSQL).
 - Point d'attention pour la VM : l'image dashboard crée `/data/captures` avec l'uid **10001** (ingestion). Sans ça, si le dashboard monte le volume `captures` en premier, Docker le donne à root et l'ingestion ne peut plus écrire les captures (bug vu et corrigé en test).
 
+**Fait (6 oct., après-midi) : les 3 demandes « → Dashboard » et la correction du test.**
+- **Page ADMIN « Utilisateurs »** : `POST /api/v1/utilisateurs` `{nom, email, role, mot_de_passe, mot_de_passe_admin}`. Le mot de passe de l'ADMIN connecté est ressaisi et vérifié (Argon2id). Mot de passe initial de 12 caractères minimum, haché dans l'API. `role` limité à LECTEUR/OPERATEUR/ADMIN (422 pour `SERVICE_VISION`). Email déjà pris : 409. Même anti force brute que la connexion. `PATCH /api/v1/utilisateurs/{id}` `{actif}` : 409 si un ADMIN tente de se désactiver lui-même. Interface : formulaire, liste avec activer/désactiver, enchaînement « créer puis photographier ».
+- **Photo par la caméra** dans « Images de référence » : `getUserMedia`, aperçu, capture `<canvas>` en JPEG (qualité 0,9, côté max 640 px), envoi sur la route existante. La caméra est arrêtée (`track.stop()`) dès la photo prise ou l'écran quitté. L'envoi de fichier est conservé. `Permissions-Policy: camera=(self)` dans le `Caddyfile` (micro et position toujours interdits).
+- **`SERVICE_VISION`** : refus par défaut. Toutes les routes exigent LECTEUR/OPERATEUR/ADMIN, sauf `GET /api/v1/images-reference` et `GET /api/v1/images-reference/{id}/fichier` (ADMIN ou service) et `/auth/me`. WebSocket fermé en 4403. L'interface affiche « compte de service : pas d'accès ». `GET /images-reference` renvoie maintenant `utilisateur_role` et `utilisateur_actif`.
+- **Test du port corrigé** : `docker inspect … {{json .HostConfig.PortBindings}}` doit valoir `{}` (plus de faux positif `:0`).
+- `test_dashboard.sh` : **105/105** sur Docker Desktop (13 Caddy, 92 API ; 27 nouveaux : 11 SERVICE_VISION, 13 utilisateurs). Vérifié aussi dans Chrome : création de compte, photo avec une caméra simulée, image enregistrée pour le bon compte.
+
+**→ VM : SERVICE_VISION restreint dans l'API** (403 partout sauf les deux routes d'images, testé : 11 tests dans `test_dashboard.sh`). Après fusion : redéployer `dashboard` et `caddy` (`sudo docker compose up -d --build dashboard caddy`), relancer `test_dashboard.sh`, puis l'utilisateur peut créer le compte de service avec `add-user.sh … SERVICE_VISION`.
+
 **Testé sur Docker Desktop (Windows), avec la stack de `server/` telle quelle** :
 - `dashboard/api/tests/test_dashboard.sh` : **78 OK** (13 Caddy, 65 API : auth, rôles, temps réel < 1 s mesuré à ~10 ms, `RESEAU_IA` invisible, commandes reçues par un faux ESP, injections, images, droits PostgreSQL). Pile isolée `sentinel-test`, détruite à la fin.
 - `server/db/tests/test_droits.sh` sur base vierge : 39 OK (rien de cassé).
