@@ -3,6 +3,31 @@ import { api } from "./api.js";
 import { dateHeure } from "./format.js";
 
 const COTE_MAX = 640; // la reconnaissance n'a pas besoin de plus (et l'envoi reste léger)
+const CLE_CAMERA = "sentinel.camera"; // dernière caméra choisie, mémorisée dans ce navigateur
+
+function lireCamera() {
+  try {
+    return localStorage.getItem(CLE_CAMERA) || "";
+  } catch {
+    return ""; // stockage bloqué (navigation privée…) : caméra par défaut
+  }
+}
+
+function memoriserCamera(id) {
+  try {
+    localStorage.setItem(CLE_CAMERA, id);
+  } catch {
+    // sans importance : on redemandera
+  }
+}
+
+// Message lisible pour les erreurs de getUserMedia
+function erreurCamera(err) {
+  if (err.name === "NotReadableError") return "Caméra utilisée par un autre programme (la vision ?) : choisissez-en une autre";
+  if (err.name === "NotAllowedError") return "Caméra indisponible : accès refusé";
+  if (err.name === "NotFoundError") return "Aucune caméra trouvée";
+  return `Caméra indisponible : ${err.message}`;
+}
 
 // Image de la caméra -> JPEG (qualité 0,9, plus grand côté 640 px)
 function capturer(video) {
@@ -24,6 +49,9 @@ export default function ImagesReference({ choisi, version }) {
   const [message, setMessage] = useState("");
   const [cameraOuverte, setCameraOuverte] = useState(false);
   const [apercu, setApercu] = useState(null); // { blob, url } de la photo prise, avant envoi
+  // Plusieurs caméras possibles (sur le PC hôte, la webcam USB est occupée par la vision)
+  const [cameras, setCameras] = useState([]);
+  const [cameraId, setCameraId] = useState(lireCamera);
   const videoRef = useRef(null);
   const fluxRef = useRef(null);
   const sectionRef = useRef(null);
@@ -62,15 +90,52 @@ export default function ImagesReference({ choisi, version }) {
     if (cameraOuverte && videoRef.current) videoRef.current.srcObject = fluxRef.current;
   }, [cameraOuverte]);
 
-  async function ouvrirCamera() {
+  // Les noms des caméras ne sont donnés qu'après une première autorisation : on liste après getUserMedia
+  async function listerCameras() {
+    try {
+      const appareils = await navigator.mediaDevices.enumerateDevices();
+      setCameras(appareils.filter((a) => a.kind === "videoinput"));
+    } catch {
+      setCameras([]);
+    }
+  }
+
+  useEffect(() => {
+    listerCameras();
+  }, []);
+
+  async function ouvrirCamera(id = cameraId) {
     setMessage("");
     setApercu(null);
+    fluxRef.current?.getTracks().forEach((t) => t.stop()); // l'ancienne caméra est libérée avant d'en ouvrir une autre
+    fluxRef.current = null;
+    setCameraOuverte(false);
     try {
-      fluxRef.current = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      let flux;
+      try {
+        flux = await navigator.mediaDevices.getUserMedia({ video: id ? { deviceId: { exact: id } } : true, audio: false });
+      } catch (err) {
+        // Caméra mémorisée débranchée : on retombe sur celle par défaut
+        if (!id || (err.name !== "OverconstrainedError" && err.name !== "NotFoundError")) throw err;
+        flux = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      }
+      fluxRef.current = flux;
+      const utilisee = flux.getVideoTracks()[0]?.getSettings().deviceId || id;
+      if (utilisee) {
+        setCameraId(utilisee);
+        memoriserCamera(utilisee);
+      }
       setCameraOuverte(true);
     } catch (err) {
-      setMessage(`Caméra indisponible : ${err.name === "NotAllowedError" ? "accès refusé" : err.message}`);
+      setMessage(erreurCamera(err)); // la liste reste active pour en choisir une autre
     }
+    await listerCameras();
+  }
+
+  function choisirCamera(id) {
+    setCameraId(id);
+    memoriserCamera(id);
+    if (cameraOuverte) ouvrirCamera(id); // bascule tout de suite si l'aperçu est affiché
   }
 
   async function prendrePhoto() {
@@ -135,8 +200,16 @@ export default function ImagesReference({ choisi, version }) {
             <option key={u.id_utilisateur} value={u.id_utilisateur}>{u.nom} ({u.role})</option>
           ))}
         </select>
+        {cameras.length > 1 && (
+          <select value={cameraId} onChange={(e) => choisirCamera(e.target.value)} title="Caméra utilisée pour la photo">
+            {!cameras.some((c) => c.deviceId === cameraId) && <option value={cameraId}>Caméra par défaut</option>}
+            {cameras.map((c, i) => (
+              <option key={c.deviceId || i} value={c.deviceId}>{c.label || `Caméra ${i + 1}`}</option>
+            ))}
+          </select>
+        )}
         {!cameraOuverte && !apercu && (
-          <button className="bouton bouton-actif" onClick={ouvrirCamera} disabled={!pour}>Prendre une photo</button>
+          <button className="bouton bouton-actif" onClick={() => ouvrirCamera()} disabled={!pour}>Prendre une photo</button>
         )}
       </div>
 

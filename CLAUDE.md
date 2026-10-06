@@ -459,6 +459,14 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 
 **→ VM : SERVICE_VISION limité au PC hôte.** Après fusion : `sudo docker compose up -d --build dashboard`, puis `test_dashboard.sh`. Rien à ajouter au `.env` si `10.0.2.2` convient (sinon `SERVICE_VISION_IPS=…`, voir `dashboard/.env.example`).
 
+**Fait (6 oct., soir) : choix de la caméra dans « Images de référence ».**
+- Liste déroulante des caméras (`enumerateDevices`, `videoinput`), affichée dès qu'il y en a plus d'une. Les noms sont relus après la première autorisation. Ouverture avec `getUserMedia({video: {deviceId: {exact: id}}})`.
+- Dernier choix mémorisé (`localStorage`, avec `try/catch`). Une caméra mémorisée mais débranchée retombe sur celle par défaut.
+- Caméra occupée (`NotReadableError`) : « Caméra utilisée par un autre programme (la vision ?) : choisissez-en une autre », et la liste reste active. Changer de caméra pendant l'aperçu fait `track.stop()` sur l'ancienne avant d'ouvrir la nouvelle.
+- Vérifié dans Chrome avec le cas du PC hôte simulé (webcam USB par défaut occupée, caméra HP libre) : message affiché, bascule vers la HP, ancienne caméra libérée, choix retrouvé après rechargement de la page. Aucun changement d'API ni de Caddy.
+
+**→ VM : choix de la caméra prêt** (interface seule). Après fusion : `sudo docker compose up -d --build caddy`.
+
 **Testé sur Docker Desktop (Windows), avec la stack de `server/` telle quelle** :
 - `dashboard/api/tests/test_dashboard.sh` : **78 OK** (13 Caddy, 65 API : auth, rôles, temps réel < 1 s mesuré à ~10 ms, `RESEAU_IA` invisible, commandes reçues par un faux ESP, injections, images, droits PostgreSQL). Pile isolée `sentinel-test`, détruite à la fin.
 - `server/db/tests/test_droits.sh` sur base vierge : 39 OK (rien de cassé).
