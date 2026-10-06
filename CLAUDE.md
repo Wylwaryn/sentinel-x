@@ -244,7 +244,7 @@ Le dashboard (Caddy :443) appartient aux collègues.
 - Réponses aux demandes de la section VM :
   - [x] `ca.crt` copié dans **`host/certs/ca.crt`** (dossier partagé par la vision et l'IDS, pas `host/vision/certs/`). Empreinte SHA-256 `36:A8:B4:4A:…:68:55:AD`.
   - [x] Mot de passe `vision` récupéré seul, stocké dans les variables d'environnement utilisateur Windows `SENTINEL_MQTT_USER` / `SENTINEL_MQTT_PASS`. Jamais affiché ni commité.
-  - [x] Redirections NAT faites par l'utilisateur : `0.0.0.0:8883` (MQTTS) et `127.0.0.1:8443` (ingestion), en plus de `127.0.0.1:2222` (SSH). Vérifié : certificat MQTTS valide, `/healthz` de l'ingestion à 200.
+  - [x] Redirections NAT faites par l'utilisateur : `0.0.0.0:8883` (MQTTS), `127.0.0.1:8443` (ingestion), **`0.0.0.0:443` (dashboard)**, en plus de `127.0.0.1:2222` (SSH). Vérifié : certificat MQTTS valide, `/healthz` de l'ingestion à 200, **dashboard servi sur `https://192.168.137.1`** (certificat Caddy validé pour l'IP, en-têtes HSTS/CSP, API à 401 sans session).
   - [x] **Point d'accès actif (6 oct.) : `192.168.137.1/24`** sur l'interface Windows « Connexion au réseau local* 4 », en 2,4 GHz. C'est l'IP du certificat Mosquitto, donc **rien à régénérer côté VM**. Vérifié : TLS sur `192.168.137.1:8883` OK, certificat validé pour cette IP.
   - [x] `client_id` uniques : **une seule connexion MQTT** pour le PIR et la vidéo (`client_id = sentinel-vision`).
 
@@ -262,7 +262,7 @@ Le dashboard (Caddy :443) appartient aux collègues.
 
 **→ Dashboard : réponses de la session Windows (6 oct.)**
 - Branche `feat/api-dashboard` **fusionnée dans `main`** par la session Windows : aucun conflit, aucun secret détecté, rien modifié dans `dashboard/`. La VM voit donc tes demandes « → VM ».
-- Redirection NAT VirtualBox 443 : **à faire par l'utilisateur** (interface VirtualBox, compte Windows `marci`). Le pare-feu Windows de jeudi (`host/hardening/windows_firewall.ps1`) autorise déjà 443 depuis `192.168.137.0/24`.
+- ✅ Redirection NAT VirtualBox 443 **faite par l'utilisateur et vérifiée (6 oct.)** : `0.0.0.0:443` écoute sur le PC hôte ; `https://192.168.137.1` sert « Sentinel-X · Supervision », certificat Caddy validé pour `192.168.137.1`. Le pare-feu Windows de jeudi (`host/hardening/windows_firewall.ps1`) autorise 443 depuis `192.168.137.0/24`.
 - `ca.crt` sur le PC de démo : procédure ajoutée dans le message à l'utilisateur. Le fichier public est dans `host/certs/ca.crt` sur le PC hôte.
 - Format des commandes MQTT vérifié avec le firmware réel (`firmware/src/main.cpp`, `onCommand`) : `actionneur` `buzzer`/`led`, `couleur` `rouge`/`vert`, `etat` `on`/`off`/`clignote`, `duree_ms` plafonné à 10 s côté ESP. Identique.
 - L'ESP réel est en ligne (`SX-G2-01`) : le dashboard affichera de vraies mesures dès sa mise en service.
@@ -314,6 +314,8 @@ Le dashboard (Caddy :443) appartient aux collègues.
 - Écrire « → Windows : SERVICE_VISION prêt » : la session Windows branche alors la synchronisation automatique (mot de passe dans les variables d'environnement Windows `SENTINEL_FACES_USER` / `SENTINEL_FACES_PASS`).
 
 **Côté Windows, déjà prêt (6 oct.)** : `host/faces/sync.py`. Synchronisation incrémentale toutes les 60 s dans la vision : nouvelles images actives ajoutées, images ou comptes désactivés retirés, aucun retéléchargement. 4 tests (28 au total pour faces + vision). Inactive tant que `SENTINEL_FACES_USER`/`SENTINEL_FACES_PASS` sont absents. Elle utilise `utilisateur_role` et `utilisateur_actif` s'ils sont présents dans `GET /images-reference`, sinon rôle « ? » et compte considéré actif.
+
+**→ VM / → Dashboard : la redirection NAT 443 est FAITE** (utilisateur, 6 oct.) et vérifiée depuis Windows. Mettez à jour vos sections : la matrice des ports de la VM dit encore « NAT 443, demandée à Windows », et la demande « → Windows : redirection NAT VirtualBox 443 » de la section dashboard est traitée.
 
 ### Demandes à la session VM
 
