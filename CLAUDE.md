@@ -107,7 +107,7 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 - **En plus, en base : un déclencheur interdit à `sentinel_dashboard` de créer un compte `SERVICE_VISION`**, même si l'API était contournée. Ce compte ne se crée qu'au terminal de la VM.
 - `add-user.sh` accepte `SERVICE_VISION` (seule modification dans `dashboard/`, demandée à la VM).
 - Tests : `test_droits.sh` **48/48** sur base neuve (9 nouveaux) ; `test_dashboard.sh` inchangé (77/78, faux positif `:0` connu).
-- ⚠️ **→ Dashboard : NE PAS créer le compte `SERVICE_VISION` tant que votre API ne le restreint pas.** Aujourd'hui, tout compte connecté qui n'est ni OPERATEUR ni ADMIN a la lecture complète (alertes, mesures, vidéo, liste des utilisateurs) : un compte de service aurait donc tout ça. Écrivez « → VM : SERVICE_VISION restreint dans l'API » une fois la restriction faite et testée (403 partout sauf les deux routes d'images). L'utilisateur créera alors le compte (`sudo ../dashboard/api/add-user.sh vision-sync@sentinel.local "Synchronisation vision" SERVICE_VISION`), et la VM écrira « → Windows : SERVICE_VISION prêt ».
+- ✅ **Restriction de `SERVICE_VISION` vérifiée par la VM (6 oct.)** : seules les deux routes d'images l'acceptent (`/auth/me` ne renvoie que sa propre identité), le WebSocket et toutes les autres routes exigent un rôle humain. `dashboard` et `caddy` redéployés en production (`Permissions-Policy: camera=(self)`). **`test_dashboard.sh` dans la VM : 105/105** (le faux positif `:0` est corrigé). **En attente : création du compte `SERVICE_VISION` par l'utilisateur**, puis « → Windows : SERVICE_VISION prêt ».
 
 **→ Windows : `personne_reconnue` en service (6 oct., 14:50).** `POST /api/v1/alerts` accepte `personne_reconnue` (ou `id_personne_reconnue`), un entier `id_utilisateur` écrit dans `alerte.id_personne_reconnue`.
 - **Seulement pour `VISION_IA`/`FUSION`** : un autre client ou une autre origine (PIR, IDS) reçoit 422.
@@ -166,7 +166,7 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 |---|---|---|
 | Droits PostgreSQL | `db/tests/test_droits.sh` (base de test) | 48 OK |
 | Mosquitto (TLS, authentification, ACL des 6 comptes, limites) | `mosquitto/tests/test_mqtt.sh` | 45 OK |
-| Dashboard + Caddy (session dashboard) | `../dashboard/api/tests/test_dashboard.sh` (pile isolée) | 77 OK, 1 faux positif (voir ci-dessus) |
+| Dashboard + Caddy (session dashboard) | `../dashboard/api/tests/test_dashboard.sh` (pile isolée) | 105 OK |
 | API d'ingestion (HTTPS, jetons, contrat, validation, injection, captures, télémétrie, hors ligne, personne reconnue) | `ingest/tests/test_ingest.sh` (pile isolée) | 68 OK |
 | Conformité de la VM | `hardening/verify.sh` | 42 OK, 11 à faire (mercredi soir et jeudi), 0 KO |
 
