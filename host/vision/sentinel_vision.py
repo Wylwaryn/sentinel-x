@@ -137,8 +137,17 @@ def main():
         while True:
             ok, frame = cap.read()
             if not ok:
-                print("Plus d'image de la webcam")
-                break
+                # Coupure USB ou caméra prise par un autre programme : on ne s'arrête JAMAIS,
+                # on rouvre la caméra toutes les 2 s jusqu'à ce qu'elle revienne.
+                print("[CAMÉRA] plus d'image : nouvelle tentative dans 2 s")
+                cap.release()
+                time.sleep(2)
+                try:
+                    cap = open_camera(config["camera"])
+                    print("[CAMÉRA] rouverte")
+                except RuntimeError as exc:
+                    print(f"[CAMÉRA] {exc}")
+                continue
             frame = cv2.resize(frame, (640, 480))
             ts = time.monotonic()
 
