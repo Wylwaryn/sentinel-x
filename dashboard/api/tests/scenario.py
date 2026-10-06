@@ -128,6 +128,19 @@ async def fermeture(cookie=None, origin=ORIGIN):
         return "ouvert"
 
 
+async def prochaine_commande(esp, delai=3.0):
+    """Prochaine commande reçue par le faux ESP (dict), ou None."""
+    try:
+        recu = await asyncio.wait_for(anext(aiter(esp.messages)), delai)
+        return json.loads(recu.payload)
+    except asyncio.TimeoutError:
+        return None
+
+
+LED_ON = {"actionneur": "led", "couleur": "rouge", "etat": "clignote", "duree_ms": 1800000}
+LED_OFF = {"actionneur": "led", "couleur": "rouge", "etat": "off"}
+
+
 def mqtt(user):
     return aiomqtt.Client(hostname="mosquitto", port=8883, username=user, password=S[f"mqtt_{user}"],
                           identifier=f"test-dashboard-{user}", tls_context=ssl.create_default_context(cafile="/certs/ca.crt"))
@@ -199,11 +212,13 @@ async def main():
               "alerte CRITIQUE reçue en WebSocket")
         check(duree is not None and duree < 1, True, f"alerte CRITIQUE en moins d'1 s ({duree and round(duree * 1000)} ms)")
         id_alerte = msg["data"]["id_alerte"] if msg else 0
+        check(await prochaine_commande(esp), LED_ON, "alerte CRITIQUE : LED rouge clignotante envoyée à l'ESP (30 min)")
 
         admin_sql("INSERT INTO alerte (type_alerte, origine, niveau, ip_source) "
                   "VALUES ('SCAN_PORTS', 'RESEAU_IA', 'CRITIQUE', '192.168.137.66')")
         msg, _ = await attendre(ws, lambda m: isinstance(m, dict) and m["type"] == "alerte", delai=1.5)
         check(msg, None, "alerte RESEAU_IA jamais envoyée au dashboard")
+        check(await prochaine_commande(esp, 1), None, "alerte RESEAU_IA : aucune commande LED")
 
         await vision.publish("sentinel/video/cam1", JPEG)
         msg, duree = await attendre(ws, lambda m: isinstance(m, bytes))
@@ -222,6 +237,7 @@ async def main():
         check(code("POST", f"/api/v1/alertes/{id_alerte}/acquitter", cookie=operateur), 200, "OPERATEUR acquitte")
         msg, _ = await attendre(ws, lambda m: isinstance(m, dict) and m["type"] == "alerte" and m["data"]["operation"] == "UPDATE")
         check(msg and msg["data"]["statut"], "ACQUITTEE", "acquittement notifié aux navigateurs")
+        check(await prochaine_commande(esp), LED_OFF, "plus aucune CRITIQUE en attente : LED rouge éteinte")
         check(code("POST", f"/api/v1/alertes/{id_alerte}/acquitter", cookie=operateur), 409, "acquitter deux fois : 409")
         check(code("POST", "/api/v1/alertes/999999/resoudre", cookie=operateur), 404, "alerte inconnue : 404")
         reseau = admin_sql("SELECT id_alerte FROM alerte WHERE origine = 'RESEAU_IA' LIMIT 1")[0]
@@ -234,16 +250,27 @@ async def main():
         check(any(a["id_alerte"] == id_alerte for a in corps_json("GET", "/api/v1/alertes", cookie=lecteur)), False,
               "alerte résolue retirée des alertes ouvertes")
         check(code("GET", f"/api/v1/alertes/{id_alerte}/capture", cookie=lecteur), 404, "capture absente du disque : 404")
+        await prochaine_commande(esp, 1)   # « off » renvoyé à la résolution : sans effet, on le consomme
+
+        # Deux alertes CRITIQUE : la LED reste allumée tant qu'il en reste une en attente
+        deux = [admin_sql("INSERT INTO alerte (id_dispositif, type_alerte, origine, niveau) "
+                          "VALUES (%s, 'PRESENCE', 'VISION_IA', 'CRITIQUE') RETURNING id_alerte", (dev,))[0]
+                for _ in range(2)]
+        recues = [await prochaine_commande(esp), await prochaine_commande(esp)]
+        check(recues, [LED_ON, LED_ON], "deux alertes CRITIQUE : LED rouge envoyée pour chacune")
+        code("POST", f"/api/v1/alertes/{deux[0]}/acquitter", cookie=operateur)
+        check(await prochaine_commande(esp, 1.5), None, "une acquittée, une encore en attente : LED laissée allumée")
+        code("POST", f"/api/v1/alertes/{deux[1]}/acquitter", cookie=operateur)
+        check(await prochaine_commande(esp), LED_OFF, "la dernière acquittée : LED éteinte")
+        admin_sql("INSERT INTO alerte (id_dispositif, type_alerte, origine, niveau) "
+                  "VALUES (%s, 'ANGLE_MORT', 'PIR', 'AVERTISSEMENT')", (dev,))
+        check(await prochaine_commande(esp, 1), None, "alerte AVERTISSEMENT : pas de LED automatique")
 
         print("== Commandes MQTT ==")
         cmd = {"commande": {"actionneur": "buzzer", "etat": "on", "duree_ms": 3000}}
         check(code("POST", f"/api/v1/dispositifs/{dev}/commandes", cmd, cookie=lecteur), 403, "LECTEUR ne peut pas commander")
         check(code("POST", f"/api/v1/dispositifs/{dev}/commandes", cmd, cookie=operateur), 202, "OPERATEUR : buzzer")
-        try:
-            recu = await asyncio.wait_for(anext(aiter(esp.messages)), 3)
-            check(json.loads(recu.payload), cmd["commande"], f"l'ESP reçoit la commande sur sentinel/cmd/{SERIE}")
-        except asyncio.TimeoutError:
-            ko("l'ESP reçoit la commande")
+        check(await prochaine_commande(esp), cmd["commande"], f"l'ESP reçoit la commande sur sentinel/cmd/{SERIE}")
         led = {"commande": {"actionneur": "led", "couleur": "rouge", "etat": "clignote"}}
         check(code("POST", f"/api/v1/dispositifs/{dev}/commandes", led, cookie=admin), 202, "ADMIN : LED rouge clignote")
         for mauvais, label in [
