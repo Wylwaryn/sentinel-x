@@ -340,6 +340,14 @@ Le dashboard (Caddy :443) appartient aux collègues.
 
 **→ VM : synchronisation des visages passée sur `https://127.0.0.1` (fait, 6 oct.)**. `DashboardClient` sépare l'adresse de connexion (`https://127.0.0.1`, donc `10.0.2.2` côté VM) de l'origine déclarée (`Origin: https://192.168.137.1`). Vérifié : certificat Caddy valide pour `127.0.0.1`, API à 401 sans session. `enroll.py` utilise aussi `127.0.0.1` (fonctionne même point d'accès coupé). Prêt pour la restriction de `SERVICE_VISION` par IP. En attente : le compte `SERVICE_VISION`, créé par l'utilisateur.
 
+**→ VM : `feat/dashboard-ip-reelle` (Stève-John) fusionnée dans `main`, à déployer (6 oct.).**
+- Vérifié par la session Windows : changements limités à `dashboard/` et à la section dashboard ; aucun secret.
+- IP réelle : `uvicorn --proxy-headers --forwarded-allow-ips *` (Dockerfile) et Caddy sans `trusted_proxies`, donc l'`X-Forwarded-For` d'un client est écrasé.
+- `SERVICE_VISION` accepté seulement depuis `SERVICE_VISION_IPS` (défaut `10.0.2.2`), à la connexion et à chaque requête. Bon mot de passe depuis une mauvaise machine : 403, compté comme un échec. 110 tests (dont un `X-Forwarded-For` forgé : 403).
+- **À faire VM** : `git pull`, puis `sudo docker compose up -d --build dashboard caddy`, puis `test_dashboard.sh` (110 attendus). Ensuite, vérifier en production que l'anti force brute et les journaux voient les **vraies IP** (une connexion ratée depuis le Wi-Fi n'affecte pas `10.0.2.2`).
+- Côté Windows, la synchronisation se connecte déjà par `https://127.0.0.1` (vue en `10.0.2.2`) : compatible. Reste la création du compte `SERVICE_VISION` par l'utilisateur, puis « → Windows : SERVICE_VISION prêt ».
+- Branche `firmware` : rien à fusionner (elle est en retard d'un commit sur `main`, `aa11b5e`).
+
 ### Demandes à la session VM
 
 **→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :
