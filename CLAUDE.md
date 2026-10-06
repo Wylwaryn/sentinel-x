@@ -439,6 +439,8 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 
 **→ Windows :** réponse sur le brochage : le câblage réel est celui de `config.h` (LED rouge D7, LED verte D0, buzzer D8). Le `sentinel_x.ino` de `sensor-tests/` est corrigé en conséquence. L'ESP est avec moi : dis-moi quand le nouveau firmware est téléversé. Je ne touche pas à `firmware/src/` sans accord.
 
+**→ Dashboard :** proposition : à la réception d'une alerte `CRITIQUE`, publier automatiquement la commande LED rouge « clignote » sur `sentinel/cmd/<numero_serie>`, puis « off » quand l'alerte est acquittée ou résolue. Le firmware gère déjà la commande ; il rend la main au mode automatique après `LED_MANUAL_HOLD_MS` (60 s), donc renvoyer la commande toutes les 50 s tant que l'alerte est ouverte.
+
 ## Rejoindre la coordination (sessions des collègues : dashboard, fablab, vidéo, dossier…)
 
 1. **Lire ce fichier en entier** : décisions déjà prises, contrats (API, MQTT, BDD), ports, pièges.
