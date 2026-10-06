@@ -117,6 +117,21 @@ check "$(last_alerte)" "FUSION/RODEUR/AVERTISSEMENT/$DEV" "vision au format BDD 
 check "$(sql "SELECT zone||'/'||pir_confirme||'/'||score_ia FROM alerte ORDER BY id_alerte DESC LIMIT 1")" "perimetre/true/0.81" "zone, pir_confirme, score_ia stockés"
 check "$(code ids '{"origine":"RESEAU_IA","type_alerte":"SCAN_PORTS","niveau":"CRITIQUE","action":"rm -rf /"}')" 422 "action hors format : 422"
 
+echo "== Personne reconnue (reconnaissance faciale de la vision) =="
+MEMBRE=$(sql "INSERT INTO utilisateur (id_role, nom, email, mot_de_passe_hash)
+              VALUES (2, 'Membre test', 'membre@test.local', '\$argon2id\$test') RETURNING id_utilisateur")
+check "$(code vision '{"type":"intrusion","level":"info","source":"fusion","serie":"TEST-ESP-01","personne_reconnue":'"$MEMBRE"',"message":"Personne autorisée : Membre test"}')" 201 "alerte avec personne_reconnue acceptée"
+check "$(sql "SELECT id_personne_reconnue FROM alerte ORDER BY id_alerte DESC LIMIT 1")" "$MEMBRE" "id_personne_reconnue enregistré"
+code vision '{"origine":"VISION_IA","type_alerte":"PRESENCE","niveau":"INFORMATION","numero_serie":"TEST-ESP-01","id_personne_reconnue":'"$MEMBRE"'}' >/dev/null
+check "$(sql "SELECT origine||'/'||id_personne_reconnue FROM alerte ORDER BY id_alerte DESC LIMIT 1")" "VISION_IA/$MEMBRE" "nom BDD id_personne_reconnue accepté"
+check "$(code vision '{"type":"presence","level":"info","source":"vision","personne_reconnue":999999}')" 422 "personne inconnue : 422 (pas 500)"
+check "$(code vision '{"type":"presence","level":"info","source":"vision","personne_reconnue":0}')" 422 "personne_reconnue = 0 : 422"
+check "$(code vision '{"type":"presence","level":"info","source":"vision","personne_reconnue":"1 OR 1=1"}')" 422 "personne_reconnue non entière : 422"
+check "$(code vision '{"type":"pir_blind_spot","level":"warning","source":"pir","personne_reconnue":'"$MEMBRE"'}')" 422 "personne_reconnue refusée hors alerte caméra (PIR)"
+check "$(code ids '{"origine":"RESEAU_IA","type_alerte":"SCAN_PORTS","niveau":"CRITIQUE","personne_reconnue":'"$MEMBRE"'}')" 422 "personne_reconnue refusée pour l'IDS"
+denied=$("${DC[@]}" exec -T postgres sh -c 'PGPASSWORD=$INGEST_DB_PASSWORD psql -X -h 127.0.0.1 -U sentinel_ingest -d $POSTGRES_DB -Atc "SELECT count(*) FROM utilisateur"' </dev/null 2>&1)
+grep -qi "permission denied\|droit refusé" <<<"$denied" && ok "le rôle ingest n'a toujours aucun accès à utilisateur" || ko "ingest lit utilisateur : $denied"
+
 echo "== Validation =="
 check "$(code vision '{"type":"port_scan","level":"info","source":"vision"}')" 422 "type incompatible avec l'origine : 422"
 check "$(code vision '{"type":"presence","level":"apocalypse","source":"vision"}')" 422 "niveau inconnu : 422"

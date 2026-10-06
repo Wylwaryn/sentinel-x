@@ -86,8 +86,8 @@ else line "À FAIRE" "Sorties de la VM limitées à DNS et NTP" "jeudi après le
 [ "$(systemctl is-enabled cups.service 2>/dev/null)" = masked ]; planned $? "CUPS masqué (ne redémarre pas)"
 listen=$(ss -Htln | awk '{print $4}')
 public=$(grep -vE '^(127\.|\[::1\]|\[::ffff:127\.)' <<<"$listen" | sed -E 's/.*:([0-9]+)$/\1/' | sort -un | tr '\n' ' ')
-expected="22 8443 8883 "
-[ "$public" = "$expected" ]; must $? "Ports en écoute hors loopback = 22, 8443, 8883" "trouvés : ${public:-aucun}"
+expected="22 443 8443 8883 "
+[ "$public" = "$expected" ]; must $? "Ports en écoute hors loopback = 22, 443, 8443, 8883" "trouvés : ${public:-aucun}"
 manual "Redirections VirtualBox : 8443 et 2222 liées à 127.0.0.1, pare-feu Windows (windows_firewall.ps1)"
 manual "VirtualBox : presse-papiers et glisser-déposer désactivés" "réglage de la VM, côté Windows"
 manual "Deploy key GitHub révoquée ou en lecture seule" "github.com > Settings > Deploy keys"

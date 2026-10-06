@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Crée un compte du dashboard (le rôle sentinel_dashboard n'a pas le droit de le faire : c'est voulu).
 #
-# Usage (dans la VM, pile démarrée) : sudo dashboard/api/add-user.sh <email> "<nom>" <ADMIN|OPERATEUR|LECTEUR>
+# Usage (dans la VM, pile démarrée) : sudo dashboard/api/add-user.sh <email> "<nom>" <ADMIN|OPERATEUR|LECTEUR|SERVICE_VISION>
 #   - le mot de passe est demandé au clavier (jamais dans argv, l'historique ou les journaux) ;
 #   - il est haché en Argon2id DANS le conteneur dashboard (même bibliothèque que la connexion) ;
 #   - l'insertion se fait avec le compte administrateur PostgreSQL, valeurs passées en variables psql.
 set -euo pipefail
 
 cd "$(dirname "$0")/../../server"
-[ $# -eq 3 ] || { echo "Usage : $0 <email> \"<nom>\" <ADMIN|OPERATEUR|LECTEUR>" >&2; exit 1; }
+[ $# -eq 3 ] || { echo "Usage : $0 <email> \"<nom>\" <ADMIN|OPERATEUR|LECTEUR|SERVICE_VISION>" >&2; exit 1; }
 email=$1 nom=$2 role=$3
-[[ $role =~ ^(ADMIN|OPERATEUR|LECTEUR)$ ]] || { echo "Rôle invalide : $role" >&2; exit 1; }
+[[ $role =~ ^(ADMIN|OPERATEUR|LECTEUR|SERVICE_VISION)$ ]] || { echo "Rôle invalide : $role" >&2; exit 1; }
 
 DC=(docker compose ${COMPOSE_ARGS:--f docker-compose.yml -f ../dashboard/docker-compose.yml})
 

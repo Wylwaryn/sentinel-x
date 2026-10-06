@@ -8,6 +8,7 @@ Touches (mode fenêtre) :
 """
 import argparse
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -59,7 +60,7 @@ def extract_persons(result, width, height):
     return persons
 
 
-def draw(frame, zones, persons, analyzer, ts, hud, recent_alerts):
+def draw(frame, zones, persons, analyzer, ts, hud, recent_alerts, names=None):
     h, w = frame.shape[:2]
     for zone in zones:
         pts = (zone.polygon * [w, h]).astype(int)
@@ -70,7 +71,8 @@ def draw(frame, zones, persons, analyzer, ts, hud, recent_alerts):
         x1, y1, x2, y2 = (int(p["box"][0] * w), int(p["box"][1] * h), int(p["box"][2] * w), int(p["box"][3] * h))
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
         dwell = analyzer.dwell_time(p["track_id"], ts)
-        cv2.putText(frame, f"#{p['track_id']} {dwell:.0f}s", (x1, max(y1 - 6, 12)),
+        who = f" {names(p['track_id'])}" if names else ""
+        cv2.putText(frame, f"#{p['track_id']}{who} {dwell:.0f}s", (x1, max(y1 - 6, 12)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2)
         cv2.circle(frame, ((x1 + x2) // 2, y2), 4, (0, 255, 0), -1)
     cv2.putText(frame, hud, (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
@@ -104,6 +106,25 @@ def main():
     fusion = FusionEngine(config["fusion"])
     sender = AlertSender(config["api"], base_dir, serie=config["device_serie"])
 
+    tracker = event_gate = None
+    faces_cfg = config.get("faces", {})
+    if faces_cfg.get("enabled"):
+        sys.path.insert(0, str((base_dir / faces_cfg["module_dir"]).resolve()))
+        from faces import FaceEngine
+        from gallery import Gallery
+        from identity import EventGate, IdentityTracker, label
+        gallery = Gallery((base_dir / faces_cfg["gallery"]).resolve())
+        tracker = IdentityTracker(faces_cfg, FaceEngine(), gallery)
+        event_gate = EventGate(tracker)
+        print(f"Reconnaissance faciale : {len(gallery.people())} personne(s) autorisée(s) dans la galerie")
+        if faces_cfg.get("sync", {}).get("enabled"):
+            from sync import BackgroundSync
+            # Moteur et galerie dédiés : les modèles OpenCV ne se partagent pas entre threads ;
+            # la galerie de la vision recharge le fichier quand la synchronisation l'a modifié.
+            bg = BackgroundSync(Gallery(gallery.path), FaceEngine(), faces_cfg["sync"])
+            print("Synchronisation des visages avec le dashboard : "
+                  + ("active" if bg.start() else "inactive (SENTINEL_FACES_USER / SENTINEL_FACES_PASS absents)"))
+
     link = None
     if config["mqtt"]["enabled"]:
         from mqtt_link import MqttLink
@@ -116,8 +137,17 @@ def main():
         while True:
             ok, frame = cap.read()
             if not ok:
-                print("Plus d'image de la webcam")
-                break
+                # Coupure USB ou caméra prise par un autre programme : on ne s'arrête JAMAIS,
+                # on rouvre la caméra toutes les 2 s jusqu'à ce qu'elle revienne.
+                print("[CAMÉRA] plus d'image : nouvelle tentative dans 2 s")
+                cap.release()
+                time.sleep(2)
+                try:
+                    cap = open_camera(config["camera"])
+                    print("[CAMÉRA] rouverte")
+                except RuntimeError as exc:
+                    print(f"[CAMÉRA] {exc}")
+                continue
             frame = cv2.resize(frame, (640, 480))
             ts = time.monotonic()
 
@@ -135,6 +165,11 @@ def main():
                 infer_ms = (time.perf_counter() - t0) * 1000
                 persons = extract_persons(result, 640, 480)
                 vision_events = analyzer.update(persons, ts)
+                if tracker:
+                    tracker.update(frame, persons, ts)
+            if event_gate:
+                # Alertes retenues le temps d'identifier la personne, puis supprimées (membre) ou libérées
+                vision_events = event_gate.process(vision_events, ts)
 
             alerts = fusion.update(ts, vision_events, persons_visible=bool(persons))
             for alert in alerts:
@@ -150,7 +185,8 @@ def main():
             link_txt = "" if link is None else (" MQTT:ok" if link.connected else " MQTT:--")
             hud = f"{infer_ms:.1f} ms | {'ACTIF' if active else 'veille'} | " \
                   f"mvt {gate.ratio * 100:.1f}% | {pir_txt}{link_txt}"
-            draw(frame, analyzer.zones, persons, analyzer, ts, hud, recent_alerts)
+            names = (lambda tid: label(tracker, tid, ts)) if tracker else None
+            draw(frame, analyzer.zones, persons, analyzer, ts, hud, recent_alerts, names)
             if link:
                 link.publish_frame(frame)  # flux annoté pour le dashboard
 

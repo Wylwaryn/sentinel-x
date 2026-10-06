@@ -61,7 +61,9 @@ class FusionEngine:
             pir = self._pir_recent_unlocked(ts)
 
             for ev in vision_events:
-                level = ESCALATE[ev.level] if pir else ev.level
+                # Un membre reconnu détecté aussi par le PIR reste une simple information
+                authorized = ev.detail.get("personne") == "autorisee"
+                level = ESCALATE[ev.level] if pir and not authorized else ev.level
                 alert = Alert(type=ev.type, level=level, source="fusion" if pir else "vision",
                               pir_confirmed=pir, ts=ts, track_id=ev.track_id, zone=ev.zone,
                               detail=dict(ev.detail))

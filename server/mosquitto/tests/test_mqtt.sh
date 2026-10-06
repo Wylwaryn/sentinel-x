@@ -48,12 +48,13 @@ profile badpw esp "mauvais-mot-de-passe"
 
 pub() { docker exec "$C" env XDG_CONFIG_HOME=/tmp/cfg/$1 mosquitto_pub -q 1 -t "$2" "${@:3}" 2>&1; }
 
-# flow <publieur> <topic pub> <abonné> <filtre sub> : affiche "recu" ou "bloque"
+# flow <publieur> <topic pub> <abonné> <filtre sub> : affiche "recu" ou "bloque".
+# Écoute 3 s puis cherche NOTRE message : la vraie télémétrie de l'ESP peut arriver en même temps.
 flow() {
     local msg="test-$RANDOM$RANDOM" out
     out=$(mktemp)
     docker exec "$C" env XDG_CONFIG_HOME=/tmp/cfg/$3 \
-        mosquitto_sub -q 1 -t "$4" -C 1 -W 4 >"$out" 2>&1 &
+        mosquitto_sub -q 1 -t "$4" -W 3 >"$out" 2>&1 &
     local pid=$!
     sleep 1
     pub "$1" "$2" -m "$msg" >/dev/null

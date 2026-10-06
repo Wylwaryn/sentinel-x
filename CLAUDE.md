@@ -81,8 +81,9 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 **En service dans la VM** :
 - PostgreSQL ;
 - Mosquitto MQTTS sur 8883 (45 tests OK, 6 comptes) ;
-- **API d'ingestion sur 8443** (`server/ingest/`, 59 tests OK sur une pile isolée).
+- **API d'ingestion sur 8443** (`server/ingest/`, 68 tests OK sur une pile isolée).
 - Supervision `sentinel-monitor` (timer chaque minute).
+- **Dashboard + Caddy :443** (code de la session dashboard, lancé par `COMPOSE_FILE`).
 
 **Statut VM : EN ATTENTE.** Étapes 1, 2, 5 (préparée), 6 et 7 terminées, plus le script de pare-feu de la VM (demandé par l'utilisateur le 6 oct.). Prochaine action VM : « → VM : appliquer le durcissement », ou le résultat du test d'observation ci-dessous.
 
@@ -99,6 +100,30 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 - ~~ESP sans connexion TLS~~ : **résolu par la session Windows** (connexion par IP, date de compilation en repli). Vérifié côté VM : `SX-G2-01` en ligne, mesures en base.
 - **8443 validé** (connexion du PC hôte comptée par la règle `10.0.2.2`). **8883 depuis le Wi-Fi validé** (2 reconnexions de l'ESP comptées par la règle `192.168.137.0/24`, même avec son IP qui change). **Liste blanche entièrement validée, 0 connexion légitime qui aurait été bloquée** : prête pour mercredi soir. ~~Test demandé~~ : Pendant que l'observation tourne, ouvrir au moins une **nouvelle** connexion depuis Windows vers 8883 (vision, maintenance prédictive ou ESP) et vers 8443 (une alerte, ou `curl https://127.0.0.1:8443/healthz`). Puis écrire « → VM : test observation fait » : la VM vérifiera que les compteurs des règles d'autorisation montent et que rien de légitime n'apparaît dans les « serait bloqué ».
 - **Quand appliquer : DÉCIDÉ par l'utilisateur (6 oct.).** `firewall.sh --apply` **mercredi soir, en même temps que `windows_firewall.ps1 -Apply`**, puis `--egress` jeudi après le gel (voir la liste en bas de ce fichier).
+
+**→ Dashboard / Windows : droits en base pour la création de comptes et `SERVICE_VISION` : FAIT côté base (6 oct.), appliqué en production.** Fichier `server/db/init/03-comptes-dashboard.sql`, idempotent et rejoué automatiquement sur une base neuve.
+- Rôle `SERVICE_VISION` ajouté à la table `role`.
+- `sentinel_dashboard` : `INSERT (id_role, nom, email, mot_de_passe_hash)` et `UPDATE (actif)` sur `utilisateur`. Toujours refusés : changer un rôle ou un mot de passe, supprimer un compte, forcer `actif` ou les dates à la création.
+- **En plus, en base : un déclencheur interdit à `sentinel_dashboard` de créer un compte `SERVICE_VISION`**, même si l'API était contournée. Ce compte ne se crée qu'au terminal de la VM.
+- `add-user.sh` accepte `SERVICE_VISION` (seule modification dans `dashboard/`, demandée à la VM).
+- Tests : `test_droits.sh` **48/48** sur base neuve (9 nouveaux) ; `test_dashboard.sh` inchangé (77/78, faux positif `:0` connu).
+- ⚠️ **→ Dashboard : NE PAS créer le compte `SERVICE_VISION` tant que votre API ne le restreint pas.** Aujourd'hui, tout compte connecté qui n'est ni OPERATEUR ni ADMIN a la lecture complète (alertes, mesures, vidéo, liste des utilisateurs) : un compte de service aurait donc tout ça. Écrivez « → VM : SERVICE_VISION restreint dans l'API » une fois la restriction faite et testée (403 partout sauf les deux routes d'images). L'utilisateur créera alors le compte (`sudo ../dashboard/api/add-user.sh vision-sync@sentinel.local "Synchronisation vision" SERVICE_VISION`), et la VM écrira « → Windows : SERVICE_VISION prêt ».
+
+**→ Windows : `personne_reconnue` en service (6 oct., 14:50).** `POST /api/v1/alerts` accepte `personne_reconnue` (ou `id_personne_reconnue`), un entier `id_utilisateur` écrit dans `alerte.id_personne_reconnue`.
+- **Seulement pour `VISION_IA`/`FUSION`** : un autre client ou une autre origine (PIR, IDS) reçoit 422.
+- Id inconnu : **422** « personne_reconnue inconnue » (pas 500). Valeur ≤ 0 ou non entière : 422.
+- **Le rôle `ingest` n'a toujours aucun accès à `utilisateur`** (testé) : PostgreSQL vérifie la clé étrangère avec les droits du propriétaire.
+- 9 tests ajoutés : `test_ingest.sh` **68/68**. API redéployée en production.
+
+**→ Dashboard : mise en service FAITE (6 oct., validée par l'utilisateur).**
+- Certificat Caddy (`pki.sh server caddy 10003 …`, SAN `sentinel-server`, `localhost`, `127.0.0.1`, `192.168.137.1`). `DASHBOARD_JWT_SECRET` généré, `DASHBOARD_ORIGINS=https://192.168.137.1`, `CADDY_SNI=sentinel-server` dans `server/.env`.
+- **Décision de l'utilisateur (point 4) : `COMPOSE_FILE=docker-compose.yml:../dashboard/docker-compose.yml` dans `server/.env`.** Un simple `sudo docker compose up -d` depuis `server/` lance les 5 services. Vos fichiers restent dans `dashboard/`, rien n'est recopié. Les scripts de test qui passent des `-f` explicites ne sont pas affectés.
+- En production : `dashboard` (sain, **aucun port publié**, `PortBindings={}`) et `caddy` (443 vers 8443). `https://127.0.0.1` répond 200, l'API sans session répond 401.
+- **`test_dashboard.sh` dans la VM : 77/78.** Le seul échec, « aucun port publié pour l'API », est un faux positif : avec Compose v5.6 (VM), `docker compose port dashboard 8000` renvoie `:0` au lieu d'une chaîne vide (Docker Desktop). **→ Dashboard :** dans votre test, remplacer ce contrôle par `docker inspect <conteneur> --format '{{json .HostConfig.PortBindings}}'`, qui doit valoir `{}`.
+- Non-régression côté VM : `test_mqtt.sh` 45/45 (test rendu robuste au trafic réel de l'ESP), `test_ingest.sh` 59/59, `verify.sh` **42 OK, 11 à faire, 0 KO** (443 ajouté aux ports attendus ; `caddy` et `dashboard` contrôlés : non root, lecture seule, `cap_drop ALL`).
+- Pare-feu de la VM : 443 était déjà prévu dans la liste blanche (Wi-Fi de la table et PC hôte). L'observation le validera à la première connexion.
+- **Accès : utiliser `https://192.168.137.1`, même depuis le PC hôte.** Avec `https://127.0.0.1`, la connexion est refusée par le contrôle d'`Origin`.
+- **Comptes réels** : créés par l'utilisateur avec `add-user.sh` (mot de passe au clavier). La VM ne les crée pas.
 
 **→ Windows : compte capteurs prêt.** Compte MQTT `capteurs`, lecture seule de `sentinel/telemetry`, `client_id` libre (`sentinel-capteurs` conseillé). Mot de passe `MQTT_CAPTEURS_PASSWORD` à récupérer seul : `ssh sentinel-vm sudo grep MQTT_CAPTEURS_PASSWORD /opt/sentinel-x/server/.env`.
 
@@ -129,6 +154,7 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 | 22 | sshd | 0.0.0.0 | Windows seulement (NAT `127.0.0.1:2222`) | clé uniquement après jeudi, UFW |
 | 8883 | Mosquitto (docker-proxy) | 0.0.0.0 | Wi-Fi (NAT `0.0.0.0:8883`) | TLS 1.2+, 6 comptes, ACL en liste blanche |
 | 8443 | API d'ingestion (docker-proxy) | 0.0.0.0 | Windows seulement (NAT `127.0.0.1:8443`) | TLS 1.2+, jeton Bearer par client |
+| 443 | Caddy vers l'API dashboard (docker-proxy) | 0.0.0.0 | Wi-Fi de la table (NAT 443, demandée à Windows) | TLS 1.2+, CSP/HSTS, session Argon2id + JWT, rôles |
 | 5432 | PostgreSQL | réseau Docker interne | personne (aucun port publié) | rôles séparés, scram-sha-256 |
 | 631 | CUPS | 127.0.0.1 | local | **supprimé jeudi** (`apply.sh`) |
 | 53 | systemd-resolved | 127.0.0.53/54 | local | — |
@@ -138,10 +164,11 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 
 | Composant | Script | Résultat |
 |---|---|---|
-| Droits PostgreSQL | `db/tests/test_droits.sh` (base de test) | 39 OK |
+| Droits PostgreSQL | `db/tests/test_droits.sh` (base de test) | 48 OK |
 | Mosquitto (TLS, authentification, ACL des 6 comptes, limites) | `mosquitto/tests/test_mqtt.sh` | 45 OK |
-| API d'ingestion (HTTPS, jetons, contrat, validation, injection, captures, télémétrie, hors ligne) | `ingest/tests/test_ingest.sh` (pile isolée) | 59 OK |
-| Conformité de la VM | `hardening/verify.sh` | 36 OK, 11 à faire (mercredi soir et jeudi), 0 KO |
+| Dashboard + Caddy (session dashboard) | `../dashboard/api/tests/test_dashboard.sh` (pile isolée) | 77 OK, 1 faux positif (voir ci-dessus) |
+| API d'ingestion (HTTPS, jetons, contrat, validation, injection, captures, télémétrie, hors ligne, personne reconnue) | `ingest/tests/test_ingest.sh` (pile isolée) | 68 OK |
+| Conformité de la VM | `hardening/verify.sh` | 42 OK, 11 à faire (mercredi soir et jeudi), 0 KO |
 
 La session VM surveille ce fichier (vérification Git toutes les minutes) et ne passe à la suite qu'avec un feu vert de l'utilisateur ou d'une session. Elle ne prend aucune décision hors plan.
 Pour lui parler : écrire **dans sa propre section** une ligne « **→ VM :** … », puis pousser (voir « Rejoindre la coordination »). Une demande d'une session de collègue qui touche à `server/` ou à la sécurité (ports, comptes, droits BDD) est confirmée auprès de l'utilisateur avant d'être faite.
@@ -239,6 +266,54 @@ Le dashboard (Caddy :443) appartient aux collègues.
 - `ca.crt` sur le PC de démo : procédure ajoutée dans le message à l'utilisateur. Le fichier public est dans `host/certs/ca.crt` sur le PC hôte.
 - Format des commandes MQTT vérifié avec le firmware réel (`firmware/src/main.cpp`, `onCommand`) : `actionneur` `buzzer`/`led`, `couleur` `rouge`/`vert`, `etat` `on`/`off`/`clignote`, `duree_ms` plafonné à 10 s côté ESP. Identique.
 - L'ESP réel est en ligne (`SX-G2-01`) : le dashboard affichera de vraies mesures dès sa mise en service.
+
+**→ IoT : réponses de la session Windows (6 oct.)**
+- Branche `firmware` **fusionnée dans `main`** (aucun conflit, aucun secret). `sensor-tests/` est hors de `src/` : PlatformIO ne le compile pas avec le firmware.
+- **Tes 3 propositions sont appliquées dans `firmware/src/main.cpp`** (compilé, RAM 37 %) :
+  1. PIR ignoré pendant `PIR_WARMUP_MS` = 60 s ;
+  2. `gaz_brut: null` pendant la préchauffe (`MQ2_WARMUP_MS` porté à **120 s**, comme ton `gas.ino`) et pour une valeur ≤ 2 ou ≥ 1021 ; moyenne sur 5 lectures ; OLED « Gaz -- (prechauf.) » ou « (defaut) ». `null` est accepté par l'API (`Telemetry.gaz_brut: int | None`) et par la base ;
+  3. une commande LED du dashboard garde la main `LED_MANUAL_HOLD_MS` = 60 s, puis le mode automatique reprend (témoin de liaison, mode secours).
+  **Pas encore téléversé** : il faut l'ESP en USB sur le PC hôte.
+- ⚠️ **À CONFIRMER : le brochage des actionneurs diffère.** `sentinel_x.ino` utilise buzzer D7, LED rouge D0, LED verte D8, alors que `config.h` (et ta section) disent LED rouge D7, LED verte D0, buzzer D8. Quel est le câblage **réel** du boîtier ? Écris-le ici. La session Windows alignera `config.h` sur le câblage, pas l'inverse. Rappel : D8 doit être au niveau bas au démarrage ; une LED ou un buzzer relié à la masse convient.
+
+**Reconnaissance faciale des membres de l'équipe (6 oct., demandée par l'utilisateur)**
+- `host/faces/` : YuNet (détection) + SFace (empreinte 128 valeurs), modèles OpenCV ; galerie locale `data/gallery.npz` (empreintes uniquement, **jamais de photo sur le PC hôte**, exclue de Git). `enroll.py` se connecte à l'**API dashboard en ADMIN** (cookie + `Origin`), envoie 5 photos par personne (`POST /api/v1/images-reference`) et ajoute leurs empreintes ; `enroll.py sync` reconstruit la galerie depuis les images **actives** du dashboard.
+- Vision (`host/vision/identity.py`) : alertes d'une personne **retenues 2 s** le temps de l'identifier (2 correspondances requises, seuil cosinus 0,40). Membre reconnu : pas d'intrusion, une seule info « Personne autorisée : <nom> » ; inconnu ou de dos : alertes normales, « personne non identifiée ». 24 tests. Vérifié en réel avec le PIR de l'ESP (fusion OK).
+- Consentement des personnes enrôlées requis (donnée biométrique). Limite : pas de détection de vivacité (une photo d'un membre pourrait tromper la caméra).
+
+**→ VM : accepter `personne_reconnue` dans `POST /api/v1/alerts`** (vision, origines `VISION_IA`/`FUSION`) : un entier `id_utilisateur`, à écrire dans `alerte.id_personne_reconnue` (la colonne et la FK existent ; une FK est vérifiée avec les droits du propriétaire, le rôle `ingest` n'a pas besoin de lire `utilisateur`). Id inconnu : 422. Aujourd'hui le champ est ignoré (`extra="ignore"`) : rien ne casse en attendant.
+  ✅ **Vérifié depuis Windows (6 oct.)** avec le code réel de la vision (`build_payload`) : 201, `FUSION/PRESENCE INFORMATION` en base avec `id_personne_reconnue` = Wyllwaryn ; id 999 refusé (422). Ligne de test supprimée. Merci !
+
+**→ Dashboard : pour info** : les images de référence servent maintenant à la reconnaissance. Désactiver une image dans le dashboard, puis lancer `enroll.py sync` sur le PC hôte, retire la personne de la galerie. Les alertes d'un membre reconnu arrivent avec `message` = « Personne autorisée : <nom> (<rôle>) » et, une fois la demande VM faite, `id_personne_reconnue`.
+
+**Demande de l'utilisateur (6 oct.) : prendre la photo ET créer les comptes directement dans le dashboard (partie ADMIN).** Décisions de l'utilisateur : réalisé par la **session dashboard** (code de Stève-John) et la **VM** ; synchronisation **automatique** des empreintes vers la vision (session Windows).
+
+**→ Dashboard : page ADMIN « Utilisateurs » (création de compte)**
+- `POST /api/v1/utilisateurs` (ADMIN, contrôle `Origin`), corps `{nom, email, role, mot_de_passe, mot_de_passe_admin}` :
+  - **ressaisie obligatoire du mot de passe de l'ADMIN connecté** (`mot_de_passe_admin`, vérifié en Argon2id) : un cookie volé ne suffit pas à créer un compte ;
+  - mot de passe initial de 12 caractères minimum, haché en Argon2id **dans l'API** (jamais en clair en base ni dans les journaux) ;
+  - `role` dans `LECTEUR`/`OPERATEUR`/`ADMIN` uniquement (pas `SERVICE_VISION` depuis l'interface) ; email déjà pris : 409 ; mêmes limites anti force brute que la connexion.
+- `PATCH /api/v1/utilisateurs/{id}` `{actif}` : désactiver ou réactiver un compte. Un ADMIN ne peut pas se désactiver lui-même.
+- Interface : formulaire de création, liste avec bouton activer/désactiver, enchaînement direct « créer puis photographier ».
+
+**→ Dashboard : photo par la caméra dans « Images de référence »**
+- Bouton « Prendre une photo » : `navigator.mediaDevices.getUserMedia({video: true})` (caméra de l'appareil qui affiche le dashboard), aperçu `<video>`, capture `<canvas>` en JPEG (qualité 0,9, côté max 640 px), envoi sur la route **existante** `POST /api/v1/images-reference` (`image/jpeg`). Garder aussi l'envoi de fichier.
+- Conseiller 3 à 5 photos par personne (face, léger profil gauche et droite), un seul visage, bonne lumière.
+- **`dashboard/web/Caddyfile` : `Permissions-Policy` passe de `camera=()` à `camera=(self)`**, sinon le navigateur bloque la caméra. Micro et géolocalisation restent interdits.
+- Arrêter la caméra (`track.stop()`) dès la photo prise ou l'écran quitté.
+
+**→ Dashboard : rôle de service `SERVICE_VISION` (synchronisation automatique)**
+- Ce rôle n'a accès qu'à **`GET /api/v1/images-reference`** et **`GET /api/v1/images-reference/{id}/fichier`** : rien d'autre, ni l'interface, ni les alertes, ni les commandes, ni les utilisateurs. Le refuser partout ailleurs (403) et le tester.
+- Ajouter à `GET /api/v1/images-reference` les champs `utilisateur_role` et `utilisateur_actif` : la vision n'a alors pas besoin de `/utilisateurs`.
+
+**→ VM : droits en base pour ces deux fonctions**
+- `role` : ajouter la ligne `('SERVICE_VISION', 'Service de synchronisation des visages')` (données, pas de changement de schéma).
+- `sentinel_dashboard` : `GRANT INSERT (id_role, nom, email, mot_de_passe_hash) ON utilisateur` et `GRANT UPDATE (actif) ON utilisateur`. **Pas d'UPDATE** sur `id_role` ni sur `mot_de_passe_hash` : un dashboard compromis ne peut pas promouvoir un compte existant.
+- Mettre à jour `db/tests/test_droits.sh` : création autorisée ; modification de rôle ou de hash refusée ; suppression refusée.
+- Créer le compte de service une fois la VM prête (lancé par l'utilisateur) : `sudo ../dashboard/api/add-user.sh vision-sync@sentinel.local "Synchronisation vision" SERVICE_VISION` (adapter `add-user.sh` pour accepter ce rôle, depuis le terminal de la VM uniquement).
+- Écrire « → Windows : SERVICE_VISION prêt » : la session Windows branche alors la synchronisation automatique (mot de passe dans les variables d'environnement Windows `SENTINEL_FACES_USER` / `SENTINEL_FACES_PASS`).
+
+**Côté Windows, déjà prêt (6 oct.)** : `host/faces/sync.py`. Synchronisation incrémentale toutes les 60 s dans la vision : nouvelles images actives ajoutées, images ou comptes désactivés retirés, aucun retéléchargement. 4 tests (28 au total pour faces + vision). Inactive tant que `SENTINEL_FACES_USER`/`SENTINEL_FACES_PASS` sont absents. Elle utilise `utilisateur_role` et `utilisateur_actif` s'ils sont présents dans `GET /images-reference`, sinon rôle « ? » et compte considéré actif.
 
 ### Demandes à la session VM
 
@@ -347,19 +422,22 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 ## IoT et électronique : où en est la session IoT (mis à jour par elle)
 
 **Fait :**
-- Tests unitaires des capteurs (PIR, MQ-2, DHT22, OLED) et des actionneurs (buzzer, LED rouge/verte) dans `firmware/sensor-tests/`. Croquis Arduino IDE **de test seulement** : ils ne doivent jamais être téléversés sur l'ESP en service (voir la règle firmware plus haut). Le test des actionneurs accepte les mêmes commandes JSON que le dashboard, saisies dans le moniteur série.
-- Câblage aligné sur `firmware/include/config.h` : DHT22 D5, PIR D6, LED rouge D7, LED verte D0, buzzer D8, MQ-2 A0 via pont diviseur, OLED D2/D1, PIR et MQ-2 sur VU.
-- Les 3 propositions d'amélioration de `main.cpp` (PIR ignoré à la calibration, gaz `null` en préchauffe ou en défaut, LED automatique après commande) ont été appliquées par la session Windows (commit `feat(firmware): PIR ignoré à la calibration…`).
-- Test des actionneurs (`actuators.ino`, mêmes commandes JSON que le dashboard, saisies dans le moniteur série) ajouté dans `sensor-tests/` et compilé (Verify).
-- Buzzer vérifié seul (alimenté en 3 V) : il fonctionne.
+- Tests unitaires dans `firmware/sensor-tests/` : un onglet `.ino` par capteur (PIR, MQ-2, DHT22, OLED) et `actuators.ino` (mêmes commandes JSON que le dashboard). Croquis Arduino IDE **de test seulement** : ne jamais les téléverser sur l'ESP en service.
+- Détection de hausse de gaz combustible (MQ-2 comparé à sa propre ligne de base) dans `gas.ino`. Le MQ-2 ne distingue pas le méthane des autres gaz combustibles.
+- Câblage aligné sur `config.h` : DHT22 D5, PIR D6, LED rouge D7, LED verte D0, buzzer D8, MQ-2 A0 via pont diviseur, OLED D2/D1, PIR et MQ-2 sur VU.
+- Commandes du dashboard reçues par l'ESP (`[CMD]` visible dans le moniteur série).
+- Les 3 propositions pour `main.cpp` ont été appliquées par la session Windows : merci.
 
-**En cours / à faire :**
-- Buzzer câblé sur D8 : validation à faire depuis le dashboard (commande `sentinel/cmd/SX-G2-01`, retour sur la ligne `Cmd` de l'OLED).
-- Câblage des LED rouge (D7) et verte (D0) : à faire, puis même validation.
-- Alimentation de production (bloc 7,5 V + convertisseur DC-DC 7,5 V vers 5 V pour le PIR et le MQ-2) : à câbler et à mesurer au multimètre avant de brancher les capteurs. Jamais en même temps que l'USB.
-- Schéma de câblage et documentation du firmware (livrables du dossier) : à écrire.
+**En cours :**
+- Confirmer à l'œil et à l'oreille la réaction du buzzer et des LED aux commandes du dashboard.
 
-**→ Windows :** l'ESP physique est avec moi. Le firmware à jour (commit `feat(firmware)`) n'est sur le boîtier qu'après un téléversement depuis le PC hôte : dis-moi quand c'est fait. Je ne touche pas à `firmware/src/`.
+**À faire :**
+- Alerte locale sur l'OLED (SECOURS, GAZ COMBUSTIBLE, CAPTEUR HS, MOUVEMENT) dans `drawOled()` : à valider avec la session Windows.
+- Capteur de méthane dédié (MQ-4) si disponible au myDiL.
+- Alimentation de production (bloc 7,5 V + convertisseur 5 V) : mesurer au multimètre avant de brancher les capteurs, jamais avec l'USB.
+- Schéma de câblage et documentation du firmware (livrables du dossier).
+
+**→ Windows :** réponse sur le brochage : le câblage réel est celui de `config.h` (LED rouge D7, LED verte D0, buzzer D8). Le `sentinel_x.ino` de `sensor-tests/` est corrigé en conséquence. L'ESP est avec moi : dis-moi quand le nouveau firmware est téléversé. Je ne touche pas à `firmware/src/` sans accord.
 
 ## Rejoindre la coordination (sessions des collègues : dashboard, fablab, vidéo, dossier…)
 

@@ -61,6 +61,9 @@ run "$POSTGRES_USER" "
     INSERT INTO utilisateur (id_role, nom, email, mot_de_passe_hash)
         VALUES (1, 'Admin test', 'admin@test.local', '\$argon2id\$hash-de-test');" >/dev/null
 
+expect_value "$POSTGRES_USER" "rôle SERVICE_VISION présent (03-comptes-dashboard.sql)" \
+    "SELECT count(*) FROM role WHERE code = 'SERVICE_VISION'" "1"
+
 echo "== Authentification =="
 for who in sentinel_ingest sentinel_dashboard "$POSTGRES_USER"; do
     if out=$(PGPASSWORD="mauvais-mot-de-passe" psql -X -h 127.0.0.1 -U "$who" -d "$DB" -tAc "SELECT 1" 2>&1); then
@@ -127,6 +130,11 @@ expect_ok sentinel_dashboard "résoudre une alerte" \
 expect_value sentinel_dashboard "une alerte réseau ne peut pas être touchée via la vue" \
     "WITH u AS (UPDATE v_alerte_supervision SET statut = 'ACQUITTEE' WHERE id_alerte = 2 RETURNING 1) SELECT count(*) FROM u" "0"
 
+expect_ok sentinel_dashboard "créer un compte LECTEUR (page ADMIN Utilisateurs)" \
+    "INSERT INTO utilisateur (id_role, nom, email, mot_de_passe_hash) SELECT id_role, 'Compte créé', 'cree@test.local', '\$argon2id\$hash-de-test' FROM role WHERE code = 'LECTEUR' RETURNING id_utilisateur"
+expect_ok sentinel_dashboard "désactiver un compte" "UPDATE utilisateur SET actif = false WHERE email = 'cree@test.local'"
+expect_ok sentinel_dashboard "réactiver un compte" "UPDATE utilisateur SET actif = true WHERE email = 'cree@test.local'"
+
 echo "== API dashboard : ce qui doit lui être refusé =="
 expect_denied sentinel_dashboard "lire la table alerte brute (alertes réseau)" "SELECT * FROM alerte" "$DENIED"
 expect_denied sentinel_dashboard "changer le niveau d'une alerte" \
@@ -136,6 +144,15 @@ expect_denied sentinel_dashboard "fabriquer une fausse mesure" \
 expect_denied sentinel_dashboard "fabriquer une fausse alerte" \
     "INSERT INTO alerte (id_dispositif, type_alerte, origine, niveau) VALUES (1, 'PRESENCE', 'VISION_IA', 'INFORMATION')" "$DENIED"
 expect_denied sentinel_dashboard "s'élever en ADMIN" "UPDATE utilisateur SET id_role = 1" "$DENIED"
+expect_denied sentinel_dashboard "changer le mot de passe d'un compte" \
+    "UPDATE utilisateur SET mot_de_passe_hash = 'x' WHERE email = 'admin@test.local'" "$DENIED"
+expect_denied sentinel_dashboard "supprimer un compte" "DELETE FROM utilisateur WHERE email = 'cree@test.local'" "$DENIED"
+expect_denied sentinel_dashboard "créer un compte en forçant d'autres colonnes (actif, date)" \
+    "INSERT INTO utilisateur (id_role, nom, email, mot_de_passe_hash, actif) VALUES (3, 'X', 'x@test.local', 'h', false)" "$DENIED"
+expect_denied sentinel_dashboard "créer un compte SERVICE_VISION" \
+    "INSERT INTO utilisateur (id_role, nom, email, mot_de_passe_hash) SELECT id_role, 'Faux service', 'svc@test.local', 'h' FROM role WHERE code = 'SERVICE_VISION'" "réservée au terminal|$DENIED"
+expect_denied sentinel_ingest "API d'ingestion : créer un compte" \
+    "INSERT INTO utilisateur (id_role, nom, email, mot_de_passe_hash) VALUES (1, 'X', 'y@test.local', 'h')" "$DENIED"
 expect_denied sentinel_dashboard "supprimer l'historique" "DELETE FROM mesure" "$DENIED"
 expect_denied sentinel_dashboard "créer une table" "CREATE TABLE pirate (x int)" "$DENIED"
 

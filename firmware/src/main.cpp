@@ -49,6 +49,9 @@ enum LedMode { LED_OFF, LED_ON, LED_BLINK };
 LedMode redMode = LED_OFF, greenMode = LED_OFF;
 float gasBaseline = -1;  // moyenne glissante lente du MQ-2 (mode secours)
 String lastCmd = "-";
+// Une commande LED du dashboard prend la main pendant LED_MANUAL_HOLD_MS, puis le mode
+// automatique (témoin de liaison, mode secours) reprend : la déconnexion reste toujours signalée.
+unsigned long greenManualUntil = 0, redManualUntil = 0;
 
 // ---------------------------------------------------------------- actionneurs
 void applyLeds() {
@@ -79,8 +82,8 @@ void onCommand(char *topic, byte *payload, unsigned int len) {
     lastCmd = String("buzzer ") + etat;
   } else if (!strcmp(act, "led")) {
     const char *couleur = doc["couleur"] | "";
-    if (!strcmp(couleur, "rouge")) redMode = parseLedMode(etat);
-    else if (!strcmp(couleur, "vert")) greenMode = parseLedMode(etat);
+    if (!strcmp(couleur, "rouge")) { redMode = parseLedMode(etat); redManualUntil = millis() + LED_MANUAL_HOLD_MS; }
+    else if (!strcmp(couleur, "vert")) { greenMode = parseLedMode(etat); greenManualUntil = millis() + LED_MANUAL_HOLD_MS; }
     else return;
     lastCmd = String("led ") + couleur + " " + etat;
   }
@@ -92,8 +95,15 @@ void readSensors() {
   float t = dht.readTemperature(), h = dht.readHumidity();
   r.temp = (isnan(t) || t < -40 || t > 80) ? NAN : t;   // hors bornes = capteur en défaut -> null
   r.hum = (isnan(h) || h < 0 || h > 100) ? NAN : h;
-  r.gas = analogRead(PIN_MQ2);
-  if (millis() - bootMs > MQ2_WARMUP_MS)
+  long sum = 0;  // moyenne de 5 lectures : l'ADC de l'ESP8266 est bruité
+  for (int i = 0; i < 5; i++) { sum += analogRead(PIN_MQ2); delay(2); }
+  int gas = sum / 5;
+  // -1 = pas de valeur fiable (envoyé en null) : préchauffe, ou valeur bloquée (fil coupé / court-circuit).
+  // Sinon la maintenance prédictive prendrait un fil arraché pour une fuite de gaz.
+  bool warming = millis() - bootMs < MQ2_WARMUP_MS;
+  bool fault = gas <= GAS_FAULT_LOW || gas >= GAS_FAULT_HIGH;
+  r.gas = (warming || fault) ? -1 : gas;
+  if (r.gas >= 0)
     gasBaseline = gasBaseline < 0 ? r.gas : 0.98f * gasBaseline + 0.02f * r.gas;
 }
 
@@ -102,7 +112,7 @@ bool publishTelemetry() {
   doc["serie"] = SERIE;
   if (isnan(r.temp)) doc["temperature_c"] = nullptr; else doc["temperature_c"] = roundf(r.temp * 10) / 10;
   if (isnan(r.hum)) doc["humidite_pct"] = nullptr; else doc["humidite_pct"] = roundf(r.hum * 10) / 10;
-  doc["gaz_brut"] = r.gas;
+  if (r.gas < 0) doc["gaz_brut"] = nullptr; else doc["gaz_brut"] = r.gas;
   doc["pir"] = r.pir;
   char buf[192];
   size_t n = serializeJson(doc, buf);
@@ -148,7 +158,8 @@ void drawOled(bool online) {
   oled.printf("MQTTS %s\n", online ? "OK" : (millis() - lastMqttOk > LOCAL_FALLBACK_AFTER_MS ? "SECOURS" : "..."));
   if (isnan(r.temp)) oled.print("T --.-C "); else oled.printf("T %.1fC ", r.temp);
   if (isnan(r.hum)) oled.println("H --%"); else oled.printf("H %.0f%%\n", r.hum);
-  oled.printf("Gaz %d%s\n", r.gas, millis() - bootMs < MQ2_WARMUP_MS ? " (prechauf.)" : "");
+  if (r.gas >= 0) oled.printf("Gaz %d\n", r.gas);
+  else oled.println(millis() - bootMs < MQ2_WARMUP_MS ? "Gaz -- (prechauf.)" : "Gaz -- (defaut)");
   oled.printf("PIR %s\n", r.pir ? "MOUVEMENT" : "calme");
   oled.printf("Cmd %s\n", lastCmd.c_str());
   oled.display();
@@ -220,7 +231,9 @@ void loop() {
     lastSensor = now;
     readSensors();
   }
-  bool pir = digitalRead(PIN_PIR) == HIGH;
+  // Calibration du HC-SR501 pendant sa première minute : faux mouvements ignorés
+  // (sinon fausse alerte FUSION au démarrage du boîtier, devant le jury).
+  bool pir = (now - bootMs >= PIR_WARMUP_MS) && digitalRead(PIN_PIR) == HIGH;
   if (pir != r.pir) { r.pir = pir; pirChanged = true; }
 
   if (online && (pirChanged || now - lastPublish >= TELEMETRY_PERIOD_MS)) {
@@ -228,13 +241,13 @@ void loop() {
   }
 
   // LED verte : fixe si relié au broker, clignotante sinon (sauf si le dashboard la pilote)
-  if (lastCmd.indexOf("vert") < 0) greenMode = online ? LED_ON : LED_BLINK;
+  if (now >= greenManualUntil) greenMode = online ? LED_ON : LED_BLINK;
 
   // Mode secours : broker perdu depuis 30 s -> le boîtier se défend seul
   if (!online && now - lastMqttOk > LOCAL_FALLBACK_AFTER_MS) {
     bool gasSpike = gasBaseline > 0 && r.gas > gasBaseline * 1.5f + 50;
     if (r.pir || gasSpike) { redMode = LED_BLINK; if (pirChanged || gasSpike) beep(800); }
-    else if (lastCmd.indexOf("rouge") < 0) redMode = LED_OFF;
+    else if (now >= redManualUntil) redMode = LED_OFF;
   }
 
   applyLeds();

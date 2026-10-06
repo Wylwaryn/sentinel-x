@@ -14,6 +14,7 @@ import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from psycopg import errors as pg_errors
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -94,6 +95,9 @@ async def create_alert(alert: AlertIn, request: Request):
     elif origine != "RESEAU_IA":
         return _error(422, "dispositif requis (champ serie ou INGEST_DEFAULT_SERIE)")
 
+    if alert.personne_reconnue is not None and origine not in ("VISION_IA", "FUSION"):
+        return _error(422, "personne_reconnue réservée aux alertes caméra")
+
     chemin_capture = None
     if alert.snapshot_jpeg_b64:
         if origine not in ("VISION_IA", "FUSION"):
@@ -116,15 +120,19 @@ async def create_alert(alert: AlertIn, request: Request):
             message=alert.build_message(type_alerte),
             ip_source=str(alert.ip_source) if alert.ip_source else None,
             score_ia=alert.score, zone=alert.zone, pir_confirme=alert.pir_confirmed,
-            chemin_capture=chemin_capture)
-    except Exception:
+            chemin_capture=chemin_capture, id_personne_reconnue=alert.personne_reconnue)
+    except Exception as exc:
         if chemin_capture:
             os.unlink(os.path.join(settings.captures_dir, chemin_capture.split("/", 1)[1]))
+        if (isinstance(exc, pg_errors.ForeignKeyViolation)
+                and exc.diag.constraint_name == "fk_alerte_id_personne_reconnue"):
+            return _error(422, "personne_reconnue inconnue")
         log.exception("échec d'écriture de l'alerte")
         return _error(500, "erreur interne")
 
-    log.info("alerte %s : %s/%s/%s (client %s%s)", id_alerte, origine, type_alerte, niveau, client,
-             f", action {alert.action}" if alert.action else "")
+    log.info("alerte %s : %s/%s/%s (client %s%s%s)", id_alerte, origine, type_alerte, niveau, client,
+             f", action {alert.action}" if alert.action else "",
+             f", personne reconnue {alert.personne_reconnue}" if alert.personne_reconnue else "")
     return {"id_alerte": id_alerte}
 
 

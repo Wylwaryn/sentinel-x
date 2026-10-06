@@ -60,14 +60,16 @@ class Database:
 
     async def insert_alerte(self, *, id_dispositif, type_alerte, origine, niveau, message,
                             ip_source=None, score_ia=None, zone=None, pir_confirme=None,
-                            chemin_capture=None) -> int:
+                            chemin_capture=None, id_personne_reconnue=None) -> int:
+        # id_personne_reconnue : la clé étrangère vers utilisateur est vérifiée par PostgreSQL avec les
+        # droits du propriétaire de la table : le rôle ingest n'a toujours aucun accès à utilisateur.
         async with self.pool.connection() as conn:
             cur = await conn.execute(
                 "INSERT INTO alerte (id_dispositif, type_alerte, origine, niveau, message, "
-                "ip_source, score_ia, zone, pir_confirme, chemin_capture) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id_alerte",
+                "ip_source, score_ia, zone, pir_confirme, chemin_capture, id_personne_reconnue) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id_alerte",
                 (id_dispositif, type_alerte, origine, niveau, message,
-                 ip_source, score_ia, zone, pir_confirme, chemin_capture))
+                 ip_source, score_ia, zone, pir_confirme, chemin_capture, id_personne_reconnue))
             return (await cur.fetchone())[0]
 
     async def silences(self) -> list[tuple[int, str, float | None]]:
