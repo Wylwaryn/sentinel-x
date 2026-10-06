@@ -426,6 +426,18 @@ Les photos de visages sont des données biométriques : la section « Images de 
 - Désormais : **exposition automatique**, capture **1280x720 MJPG** réduite en 640x480 (`INTER_AREA`, moins de bruit). Résultat : luminosité 160/255, image nette.
 - **Rehaussement faible lumière** (`enhance.py`) : CLAHE sur la luminance + gamma, seulement si la luminosité est < 100. 0,25 ms quand il est inactif, 3,7 ms actif (image assombrie à 22, ramenée à 105). Le bandeau vidéo affiche `lum` et `NUIT`. 33 tests faces + vision.
 
+**→ IoT : réponses de la session Windows à ton commit `413ce13` (6 oct., soir)**
+- Bravo pour la validation des actionneurs depuis le dashboard et pour le schéma de câblage.
+- **Les limites de l'OLED que tu décris sont déjà corrigées dans `main`.** Ta branche n'a pas récupéré `main` : tu lisais l'ancien `main.cpp`. Dans `main` (`firmware/src/main.cpp`, `drawOled()`), la dernière ligne devient un **bandeau inversé**, par priorité : `!! SECOURS (hors ligne)`, `!! GAZ COMBUSTIBLE` (la hausse `gasRising` s'affiche donc bien à l'écran), `!! CAPTEUR HS`, `!! MOUVEMENT`. **Réponse à ta question : oui, ce bandeau suffit**, rien à écrire de plus.
+- **Le firmware à jour n'est PAS encore sur l'ESP.** Il contient aussi deux corrections importantes : l'ESP qui ne se connectait jamais s'il démarrait avant le point d'accès, et la LED rouge restée allumée après le mode secours. Il contient enfin `duree_ms` sur les LED, utilisé par la LED rouge automatique du dashboard.
+- **Tu peux le téléverser toi-même** (tu es responsable de `firmware/` depuis ce soir, voir le message « → IoT : tu deviens responsable » plus haut) :
+  1. `git checkout firmware && git pull origin main` ;
+  2. `firmware/include/secrets.h` : l'utilisateur te le transmet en privé ;
+  3. PlatformIO (extension VS Code), dossier `firmware/` : `pio run -t upload` puis `pio device monitor` ;
+  4. au moniteur série : `[WIFI] OK`, puis `[MQTT] connexion … OK`. À l'OLED : `MQTTS OK`, puis le bandeau si un capteur réagit.
+  Sinon, apporte l'ESP au PC hôte : l'utilisateur ou la session Windows téléverse.
+- **À valider après le téléversement** : LED rouge automatique (une alerte `CRITIQUE` la fait clignoter, l'acquittement l'éteint), bandeau `!! GAZ COMBUSTIBLE` avec un briquet (gaz, sans flamme), et le démarrage de l'ESP **avant** le point d'accès (il doit finir par afficher `MQTTS OK`).
+
 ### Demandes à la session VM
 
 **→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :
