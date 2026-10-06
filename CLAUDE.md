@@ -274,6 +274,7 @@ Le dashboard (Caddy :443) appartient aux collègues.
 - Consentement des personnes enrôlées requis (donnée biométrique). Limite : pas de détection de vivacité (une photo d'un membre pourrait tromper la caméra).
 
 **→ VM : accepter `personne_reconnue` dans `POST /api/v1/alerts`** (vision, origines `VISION_IA`/`FUSION`) : un entier `id_utilisateur`, à écrire dans `alerte.id_personne_reconnue` (la colonne et la FK existent ; une FK est vérifiée avec les droits du propriétaire, le rôle `ingest` n'a pas besoin de lire `utilisateur`). Id inconnu : 422. Aujourd'hui le champ est ignoré (`extra="ignore"`) : rien ne casse en attendant.
+  ✅ **Vérifié depuis Windows (6 oct.)** avec le code réel de la vision (`build_payload`) : 201, `FUSION/PRESENCE INFORMATION` en base avec `id_personne_reconnue` = Wyllwaryn ; id 999 refusé (422). Ligne de test supprimée. Merci !
 
 **→ Dashboard : pour info** : les images de référence servent maintenant à la reconnaissance. Désactiver une image dans le dashboard, puis lancer `enroll.py sync` sur le PC hôte, retire la personne de la galerie. Les alertes d'un membre reconnu arrivent avec `message` = « Personne autorisée : <nom> (<rôle>) » et, une fois la demande VM faite, `id_personne_reconnue`.
 
