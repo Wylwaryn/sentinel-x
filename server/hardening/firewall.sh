@@ -11,7 +11,8 @@
 # 1. Entrées de la VM (UFW) : refus par défaut ; SSH 22 autorisé UNIQUEMENT depuis la passerelle NAT
 #    VirtualBox (10.0.2.2), c'est-à-dire via la redirection 127.0.0.1:2222 du PC hôte.
 # 2. Ports des conteneurs (chaîne DOCKER-USER) : Docker publie ses ports en contournant UFW.
-#    Liste blanche : 8883 (MQTTS), 8443 (ingestion), 443 (Caddy, futur) depuis 10.0.2.2.
+#    Liste blanche : 8883 (MQTTS) et 443 (Caddy, futur) depuis 10.0.2.2 et le Wi-Fi de la table
+#    (192.168.137.0/24, l'ESP y garde sa vraie IP) ; 8443 (ingestion) depuis 10.0.2.2 seulement.
 #    Toute autre connexion entrante vers un conteneur est journalisée puis bloquée (IPv4 et IPv6),
 #    même si un port est publié par erreur (ex. 5432).
 #    Règles posées dans /etc/ufw/after*.rules : rechargées par UFW à chaque démarrage.
@@ -24,6 +25,12 @@ set -euo pipefail
 export LC_ALL=C LANGUAGE=C
 
 DOCKER_PORTS=(8883 8443 443)
+# Réseau Wi-Fi de la table (point d'accès Windows). VirtualBox CONSERVE l'IP source des machines du
+# Wi-Fi (l'ESP arrive en 192.168.137.2) ; seules les connexions issues du PC hôte arrivent en 10.0.2.2.
+TABLE_NET=192.168.137.0/24
+# Sources autorisées par port : 8443 (ingestion) ne sert qu'au PC hôte (vision, IDS, maintenance) ;
+# 8883 (ESP + PC hôte) et 443 (navigateurs de la table + PC hôte) acceptent aussi le Wi-Fi de la table.
+sources_for() { case $1 in 8443) echo "$GW" ;; *) echo "$GW $TABLE_NET" ;; esac; }
 BACKUP=/var/backups/sentinel-x/pare-feu-avant-durcissement
 MARK_BEGIN="# BEGIN SENTINEL-X DOCKER-USER (server/hardening/firewall.sh, ne pas modifier)"
 MARK_END="# END SENTINEL-X DOCKER-USER"
@@ -68,7 +75,9 @@ if [ $MODE = observe ] || [ $MODE = observe-stop ]; then
     if [ $MODE = observe-stop ]; then echo "Observation arrêtée (DOCKER-USER vidée)."; exit 0; fi
     iptables -A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
     for p in "${DOCKER_PORTS[@]}"; do
-        iptables -A DOCKER-USER -i "$IFACE" -s "$GW" -p tcp -m conntrack --ctstate NEW --ctorigdstport "$p" -j RETURN
+        for src in $(sources_for "$p"); do
+            iptables -A DOCKER-USER -i "$IFACE" -s "$src" -p tcp -m conntrack --ctstate NEW --ctorigdstport "$p" -j RETURN
+        done
     done
     iptables -A DOCKER-USER -i "$IFACE" -m limit --limit 30/min -j LOG --log-prefix "[SENTINEL OBSERVATION] "
     iptables -A DOCKER-USER -j RETURN
@@ -132,14 +141,16 @@ others=$(grep '^ufw ' <<<"$added" | grep -vE "port 22 proto tcp|^ufw allow 22/tc
     || { echo "  ATTENTION : autres règles d'entrée, à revoir à la main :"; sed 's/^/      /' <<<"$others"; }
 
 # ---------------------------------------------------------------------------- 2. DOCKER-USER
-title "Ports des conteneurs (DOCKER-USER) : ${DOCKER_PORTS[*]} depuis $GW, tout le reste bloqué"
+title "Ports des conteneurs (DOCKER-USER) : 8883 et 443 depuis $GW + $TABLE_NET, 8443 depuis $GW, reste bloqué"
 block4="$MARK_BEGIN
 *filter
 :DOCKER-USER - [0:0]
 -A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN"
 for p in "${DOCKER_PORTS[@]}"; do
-    block4+="
--A DOCKER-USER -i $IFACE -s $GW -p tcp -m conntrack --ctstate NEW --ctorigdstport $p -j RETURN"
+    for src in $(sources_for "$p"); do
+        block4+="
+-A DOCKER-USER -i $IFACE -s $src -p tcp -m conntrack --ctstate NEW --ctorigdstport $p -j RETURN"
+    done
 done
 block4+="
 -A DOCKER-USER -i $IFACE -m limit --limit 6/min --limit-burst 10 -j LOG --log-prefix \"[SENTINEL DOCKER BLOQUE] \"

@@ -71,8 +71,10 @@ extra=$(grep ALLOW <<<"$ufw_out" | grep -vE '^22/tcp( \(v6\))? ' | grep -v ' OUT
 [ -z "$extra" ]; must $? "UFW : aucune ouverture en entrée autre que SSH" "${extra:-ok}"
 du=$(iptables -S DOCKER-USER 2>/dev/null)
 grep -q -- "-i enp0s3 -j DROP" <<<"$du" && grep -q -- "--ctorigdstport 8883 -j RETURN" <<<"$du" \
-    && grep -q -- "--ctorigdstport 8443 -j RETURN" <<<"$du"
-planned $? "Ports des conteneurs filtrés (DOCKER-USER : 8883, 8443, 443 depuis $gw, reste bloqué)" "Docker contourne UFW"
+    && grep -q -- "--ctorigdstport 8443 -j RETURN" <<<"$du" \
+    && grep -q -- "-s 192.168.137.0/24 .*--ctorigdstport 8883 -j RETURN" <<<"$du" \
+    && ! grep -q -- "-s 192.168.137.0/24 .*--ctorigdstport 8443" <<<"$du"
+planned $? "Ports des conteneurs filtrés (DOCKER-USER : 8883/443 depuis $gw + Wi-Fi de la table, 8443 depuis $gw seul)" "Docker contourne UFW"
 grep -q "SENTINEL-X DOCKER-USER" /etc/ufw/after.rules /etc/ufw/after6.rules 2>/dev/null
 planned $? "Filtrage DOCKER-USER persistant (rechargé par UFW au démarrage, IPv4 et IPv6)"
 pub=$(docker ps --format '{{.Ports}}' | grep -oE '0\.0\.0\.0:[0-9]+' | cut -d: -f2 | sort -un | tr '\n' ' ')
