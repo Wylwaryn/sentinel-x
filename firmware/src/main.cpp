@@ -42,6 +42,7 @@ struct Readings {
 } r;
 
 bool oledOk = false;
+bool gasFault = false, gasRising = false;  // pour le bandeau d'alerte locale de l'OLED
 bool timeOk = false;
 unsigned long bootMs, lastSensor = 0, lastPublish = 0, lastMqttOk = 0, lastReconnect = 0;
 unsigned long buzzerUntil = 0;
@@ -82,8 +83,11 @@ void onCommand(char *topic, byte *payload, unsigned int len) {
     lastCmd = String("buzzer ") + etat;
   } else if (!strcmp(act, "led")) {
     const char *couleur = doc["couleur"] | "";
-    if (!strcmp(couleur, "rouge")) { redMode = parseLedMode(etat); redManualUntil = millis() + LED_MANUAL_HOLD_MS; }
-    else if (!strcmp(couleur, "vert")) { greenMode = parseLedMode(etat); greenManualUntil = millis() + LED_MANUAL_HOLD_MS; }
+    // "duree_ms" facultatif : le dashboard peut tenir la LED (ex. rouge clignotante pendant une alerte
+    // critique) avec UNE seule commande, puis envoyer "off" à l'acquittement. Sans durée : 60 s.
+    unsigned long hold = min((unsigned long)(doc["duree_ms"] | LED_MANUAL_HOLD_MS), LED_MAX_HOLD_MS);
+    if (!strcmp(couleur, "rouge")) { redMode = parseLedMode(etat); redManualUntil = millis() + hold; }
+    else if (!strcmp(couleur, "vert")) { greenMode = parseLedMode(etat); greenManualUntil = millis() + hold; }
     else return;
     lastCmd = String("led ") + couleur + " " + etat;
   }
@@ -102,10 +106,12 @@ void readSensors() {
   // Sinon la maintenance prédictive prendrait un fil arraché pour une fuite de gaz.
   bool warming = millis() - bootMs < MQ2_WARMUP_MS;
   bool fault = gas <= GAS_FAULT_LOW || gas >= GAS_FAULT_HIGH;
+  gasFault = !warming && fault;
   r.gas = (warming || fault) ? -1 : gas;
   // Ligne de base apprise UNIQUEMENT en air propre (idée de la session IoT) : sinon elle « monte avec
   // la fuite » et le mode secours finirait par se taire alors que le gaz est toujours là.
   bool rising = gasBaseline > 0 && r.gas > gasBaseline * 1.5f + 50;
+  gasRising = rising;
   if (r.gas >= 0 && !rising)
     gasBaseline = gasBaseline < 0 ? r.gas : 0.98f * gasBaseline + 0.02f * r.gas;
 }
@@ -164,7 +170,21 @@ void drawOled(bool online) {
   if (r.gas >= 0) oled.printf("Gaz %d\n", r.gas);
   else oled.println(millis() - bootMs < MQ2_WARMUP_MS ? "Gaz -- (prechauf.)" : "Gaz -- (defaut)");
   oled.printf("PIR %s\n", r.pir ? "MOUVEMENT" : "calme");
-  oled.printf("Cmd %s\n", lastCmd.c_str());
+  // Dernière ligne : bandeau d'alerte locale inversé (lisible de loin), sinon la dernière commande reçue.
+  const char *banner = nullptr;
+  if (!online && millis() - lastMqttOk > LOCAL_FALLBACK_AFTER_MS) banner = "!! SECOURS (hors ligne)";
+  else if (gasRising) banner = "!! GAZ COMBUSTIBLE";
+  else if (gasFault || (millis() - bootMs > 10000 && (isnan(r.temp) || isnan(r.hum)))) banner = "!! CAPTEUR HS";
+  else if (r.pir) banner = "!! MOUVEMENT";
+  if (banner) {
+    oled.fillRect(0, 56, 128, 8, SSD1306_WHITE);
+    oled.setTextColor(SSD1306_BLACK);
+    oled.setCursor(0, 56);
+    oled.print(banner);
+    oled.setTextColor(SSD1306_WHITE);
+  } else {
+    oled.printf("Cmd %s\n", lastCmd.c_str());
+  }
   oled.display();
 }
 

@@ -362,6 +362,17 @@ Le dashboard (Caddy :443) appartient aux collègues.
   - Si une caméra est occupée (`NotReadableError`), afficher « Caméra utilisée par un autre programme (la vision ?) : choisissez-en une autre » et laisser la liste active.
 - Rien à changer côté API ni Caddy (`camera=(self)` suffit). Faire `track.stop()` sur l'ancienne caméra quand on en change.
 
+**→ IoT : réponses de la session Windows (6 oct., soir)**
+- Branche `firmware` fusionnée (seulement ta section de `CLAUDE.md`).
+- ⚠️ **La correction des broches de `sentinel_x.ino` n'est PAS sur GitHub** : `main` a toujours `PIN_BUZZER D7`, `PIN_RED D0`, `PIN_GREEN D8`. Elle est sans doute restée sur ton PC : commit puis push (`PIN_BUZZER D8`, `PIN_RED D7`, `PIN_GREEN D0`).
+- **Alerte locale sur l'OLED : faite** dans `drawOled()`. Bandeau inversé sur la dernière ligne, par priorité : `!! SECOURS (hors ligne)`, puis `!! GAZ COMBUSTIBLE` (hausse par rapport à la ligne de base), puis `!! CAPTEUR HS` (gaz bloqué, ou DHT22 muet après 10 s), puis `!! MOUVEMENT`. Sinon, la dernière commande reçue s'affiche comme avant.
+- Compilé (RAM 37,4 %). **Téléversement : apporter l'ESP au PC hôte**, puis validation buzzer et LED depuis le dashboard.
+
+**→ Dashboard : LED rouge sur alerte critique (proposition IoT), version simplifiée par le firmware**
+- Le firmware accepte maintenant `duree_ms` sur les commandes LED (comme pour le buzzer), plafonné à 30 min (`LED_MAX_HOLD_MS`). Sans `duree_ms` : 60 s comme avant.
+- Donc **plus besoin de renvoyer la commande toutes les 50 s**. Une seule commande à l'arrivée d'une alerte `CRITIQUE` : `{"actionneur":"led","couleur":"rouge","etat":"clignote","duree_ms":1800000}`. Puis `{"actionneur":"led","couleur":"rouge","etat":"off"}` quand **plus aucune** alerte critique n'est ouverte (acquittée ou résolue).
+- Sécurité : la commande part de l'API dashboard (compte MQTT `dashboard`), jamais du navigateur. À journaliser comme les autres commandes.
+
 ### Demandes à la session VM
 
 **→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :

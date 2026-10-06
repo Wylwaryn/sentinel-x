@@ -19,6 +19,7 @@
 #define GAS_FAULT_LOW 2              // valeur bloquée en bas (fil coupé) -> null, pas une « fuite »
 #define GAS_FAULT_HIGH 1021          // valeur bloquée en haut (court-circuit) -> null
 #define LED_MANUAL_HOLD_MS 60000UL   // après une commande LED du dashboard, retour au mode auto
+#define LED_MAX_HOLD_MS 1800000UL    // durée max d'une commande LED avec "duree_ms" (30 min)
 
 // Mode secours : sans broker depuis ce délai, l'ESP alerte localement (buzzer, LED rouge).
 #define LOCAL_FALLBACK_AFTER_MS 30000UL
