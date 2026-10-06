@@ -514,6 +514,15 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 
 **→ VM : LED automatique prête.** Après fusion : `sudo docker compose up -d --build dashboard`, puis `test_dashboard.sh`. **→ IoT :** à valider sur le vrai boîtier une fois le firmware téléversé (LED rouge qui clignote à une alerte critique, puis s'éteint à l'acquittement).
 
+**Fait (6 oct., soir) : utilisateurs et images de référence réservés au PC hôte** (les deux demandes, validées par l'utilisateur).
+- Variable **`HOST_ONLY_IPS`** (défaut `10.0.2.2,192.168.137.1`, passée par `dashboard/docker-compose.yml`). Un ADMIN dont l'IP réelle n'y est pas reçoit **403 « réservé au PC hôte »** (journalisé avec son IP) sur les 7 routes : `GET/POST /utilisateurs`, `PATCH /utilisateurs/{id}`, `GET/POST /images-reference`, `PATCH /images-reference/{id}`, `GET /images-reference/{id}/fichier`. Le reste du dashboard fonctionne normalement depuis n'importe quel poste.
+- `SERVICE_VISION` garde sa propre règle (`SERVICE_VISION_IPS`).
+- `GET /auth/me` (et la réponse de connexion) renvoient `poste_hote: true/false`. L'interface remplace alors les deux sections par « disponibles uniquement sur le PC hôte ».
+- `dashboard/.env.example` : `DASHBOARD_ORIGINS=https://192.168.137.1,https://127.0.0.1` et `HOST_ONLY_IPS`.
+- Tests : `test_dashboard.sh` **132/132** (21 Caddy, 111 API ; 15 nouveaux, dont un ADMIN réel passant par Caddy avec un `X-Forwarded-For: 127.0.0.1` forgé, refusé). Contient aussi la LED automatique (branche précédente, pas encore fusionnée : cette branche part d'elle).
+
+**→ VM : PC hôte prêt.** Fusionner **`feat/dashboard-poste-hote`** (elle contient aussi `feat/dashboard-led-critique`). Ajouter `https://127.0.0.1` à `DASHBOARD_ORIGINS` dans `server/.env` (`HOST_ONLY_IPS` a le bon défaut). Puis `sudo docker compose up -d --build dashboard caddy` et `test_dashboard.sh`.
+
 **Testé sur Docker Desktop (Windows), avec la stack de `server/` telle quelle** :
 - `dashboard/api/tests/test_dashboard.sh` : **78 OK** (13 Caddy, 65 API : auth, rôles, temps réel < 1 s mesuré à ~10 ms, `RESEAU_IA` invisible, commandes reçues par un faux ESP, injections, images, droits PostgreSQL). Pile isolée `sentinel-test`, détruite à la fin.
 - `server/db/tests/test_droits.sh` sur base vierge : 39 OK (rien de cassé).
