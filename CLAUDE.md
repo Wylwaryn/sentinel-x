@@ -278,6 +278,33 @@ Le dashboard (Caddy :443) appartient aux collègues.
 
 **→ Dashboard : pour info** : les images de référence servent maintenant à la reconnaissance. Désactiver une image dans le dashboard, puis lancer `enroll.py sync` sur le PC hôte, retire la personne de la galerie. Les alertes d'un membre reconnu arrivent avec `message` = « Personne autorisée : <nom> (<rôle>) » et, une fois la demande VM faite, `id_personne_reconnue`.
 
+**Demande de l'utilisateur (6 oct.) : prendre la photo ET créer les comptes directement dans le dashboard (partie ADMIN).** Décisions de l'utilisateur : réalisé par la **session dashboard** (code de Stève-John) et la **VM** ; synchronisation **automatique** des empreintes vers la vision (session Windows).
+
+**→ Dashboard : page ADMIN « Utilisateurs » (création de compte)**
+- `POST /api/v1/utilisateurs` (ADMIN, contrôle `Origin`), corps `{nom, email, role, mot_de_passe, mot_de_passe_admin}` :
+  - **ressaisie obligatoire du mot de passe de l'ADMIN connecté** (`mot_de_passe_admin`, vérifié en Argon2id) : un cookie volé ne suffit pas à créer un compte ;
+  - mot de passe initial de 12 caractères minimum, haché en Argon2id **dans l'API** (jamais en clair en base ni dans les journaux) ;
+  - `role` dans `LECTEUR`/`OPERATEUR`/`ADMIN` uniquement (pas `SERVICE_VISION` depuis l'interface) ; email déjà pris : 409 ; mêmes limites anti force brute que la connexion.
+- `PATCH /api/v1/utilisateurs/{id}` `{actif}` : désactiver ou réactiver un compte. Un ADMIN ne peut pas se désactiver lui-même.
+- Interface : formulaire de création, liste avec bouton activer/désactiver, enchaînement direct « créer puis photographier ».
+
+**→ Dashboard : photo par la caméra dans « Images de référence »**
+- Bouton « Prendre une photo » : `navigator.mediaDevices.getUserMedia({video: true})` (caméra de l'appareil qui affiche le dashboard), aperçu `<video>`, capture `<canvas>` en JPEG (qualité 0,9, côté max 640 px), envoi sur la route **existante** `POST /api/v1/images-reference` (`image/jpeg`). Garder aussi l'envoi de fichier.
+- Conseiller 3 à 5 photos par personne (face, léger profil gauche et droite), un seul visage, bonne lumière.
+- **`dashboard/web/Caddyfile` : `Permissions-Policy` passe de `camera=()` à `camera=(self)`**, sinon le navigateur bloque la caméra. Micro et géolocalisation restent interdits.
+- Arrêter la caméra (`track.stop()`) dès la photo prise ou l'écran quitté.
+
+**→ Dashboard : rôle de service `SERVICE_VISION` (synchronisation automatique)**
+- Ce rôle n'a accès qu'à **`GET /api/v1/images-reference`** et **`GET /api/v1/images-reference/{id}/fichier`** : rien d'autre, ni l'interface, ni les alertes, ni les commandes, ni les utilisateurs. Le refuser partout ailleurs (403) et le tester.
+- Ajouter à `GET /api/v1/images-reference` les champs `utilisateur_role` et `utilisateur_actif` : la vision n'a alors pas besoin de `/utilisateurs`.
+
+**→ VM : droits en base pour ces deux fonctions**
+- `role` : ajouter la ligne `('SERVICE_VISION', 'Service de synchronisation des visages')` (données, pas de changement de schéma).
+- `sentinel_dashboard` : `GRANT INSERT (id_role, nom, email, mot_de_passe_hash) ON utilisateur` et `GRANT UPDATE (actif) ON utilisateur`. **Pas d'UPDATE** sur `id_role` ni sur `mot_de_passe_hash` : un dashboard compromis ne peut pas promouvoir un compte existant.
+- Mettre à jour `db/tests/test_droits.sh` : création autorisée ; modification de rôle ou de hash refusée ; suppression refusée.
+- Créer le compte de service une fois la VM prête (lancé par l'utilisateur) : `sudo ../dashboard/api/add-user.sh vision-sync@sentinel.local "Synchronisation vision" SERVICE_VISION` (adapter `add-user.sh` pour accepter ce rôle, depuis le terminal de la VM uniquement).
+- Écrire « → Windows : SERVICE_VISION prêt » : la session Windows branche alors la synchronisation automatique (mot de passe dans les variables d'environnement Windows `SENTINEL_FACES_USER` / `SENTINEL_FACES_PASS`).
+
 ### Demandes à la session VM
 
 **→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :
