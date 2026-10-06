@@ -27,10 +27,12 @@
     "block_ttl_s": 300,
     "cooldown_s": 30,
     "whitelist": [
-      "127.0.0.1",
-      "192.168.137.2"
+      "127.0.0.1"
     ],
-    "log_file": "logs/ids_events.jsonl"
+    "log_file": "logs/ids_events.jsonl",
+    "whitelist_mac": [
+      "40:f5:20:0d:5f:21"
+    ]
   },
   "api": {
     "enabled": true,
@@ -39,7 +41,8 @@
     "ca_cert": "../certs/ca.crt",
     "timeout_s": 2.0
   },
-  "devices": {
-    "192.168.137.2": "SX-G2-01"
+  "devices": {},
+  "devices_mac": {
+    "40:f5:20:0d:5f:21": "SX-G2-01"
   }
 }

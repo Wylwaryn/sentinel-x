@@ -120,10 +120,18 @@ def to_api_payload(event):
 
 
 class Responder:
-    def __init__(self, response_cfg, protected_ips, devices=None, api=None, blocker=None, base_dir="."):
+    """devices / whitelist par IP (statique) ou par adresse MAC (stable : le DHCP du point
+    d'accès change les IP à chaque reconnexion). ip_to_mac : résolution fournie par la capture.
+    Une MAC peut être usurpée : une machine en liste blanche est toujours ALERTÉE, jamais muette."""
+
+    def __init__(self, response_cfg, protected_ips, devices=None, api=None, blocker=None, base_dir=".",
+                 devices_mac=None, ip_to_mac=None):
         self.cfg = response_cfg
         self.never_block = set(response_cfg["whitelist"]) | set(protected_ips)
+        self.never_block_mac = {m.lower() for m in response_cfg.get("whitelist_mac", [])}
         self.devices = devices or {}
+        self.devices_mac = {m.lower(): s for m, s in (devices_mac or {}).items()}
+        self.ip_to_mac = ip_to_mac or (lambda ip: None)
         self.api = api
         self.blocker = blocker or FirewallBlocker(response_cfg["block_ttl_s"])
         self.log_path = Path(base_dir) / response_cfg["log_file"]
@@ -139,8 +147,10 @@ class Responder:
             return None
         self._last[key] = now
 
+        mac = (self.ip_to_mac(ip) or "").lower() or None
+        serie = self.devices.get(ip) or self.devices_mac.get(mac)
         action = "alerte"
-        if ip in self.never_block:
+        if ip in self.never_block or (mac and mac in self.never_block_mac):
             action = "liste_blanche"
         elif self.cfg["mode"] == "blocage" and score >= self.cfg["block_score"]:
             action = self.blocker.block(ip)
@@ -152,7 +162,8 @@ class Responder:
             "type_alerte": kind,
             "niveau": level(score, self.cfg["critical_score"]),
             "ip_source": ip,
-            "numero_serie": self.devices.get(ip),
+            "mac_source": mac,
+            "numero_serie": serie,
             "score_ia": round(float(score), 3),
             "message": f"{kind} depuis {ip} (score {score:.2f}) : {', '.join(top)} ; action {action}",
             "action": action,

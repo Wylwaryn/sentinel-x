@@ -47,13 +47,21 @@ class LiveCapture:
         self.protected = protected
         self.agg = FlowAggregator(protected, cap_cfg["service_ports"])
         self.lock = threading.Lock()
+        self.ip_mac = {}  # IP -> adresse MAC vue dans les trames (les IP du point d'accès changent)
         self.sniffer = AsyncSniffer(iface=cap_cfg["iface"], filter=cap_cfg["bpf"], prn=self._on_packet, store=False)
 
     def _on_packet(self, pkt):
+        from scapy.layers.l2 import Ether
         info = to_packet_info(pkt)
         if info:
             with self.lock:
                 self.agg.add(info)
+                if Ether in pkt and info.src not in self.protected:
+                    self.ip_mac[info.src] = pkt[Ether].src.lower()
+
+    def mac_of(self, ip):
+        with self.lock:
+            return self.ip_mac.get(ip)
 
     def start(self):
         self.sniffer.start()
@@ -132,7 +140,8 @@ def cmd_detect(_args, cfg):
     det = NetworkAnomalyDetector.load(BASE / cfg["model"]["dir"])
     cap = LiveCapture(cfg["capture"])
     api = ApiSender(cfg["api"], BASE) if cfg["api"]["enabled"] else None
-    responder = Responder(cfg["response"], cap.protected, cfg.get("devices"), api=api, base_dir=BASE)
+    responder = Responder(cfg["response"], cap.protected, cfg.get("devices"), api=api, base_dir=BASE,
+                          devices_mac=cfg.get("devices_mac"), ip_to_mac=cap.mac_of)
 
     mode = cfg["response"]["mode"]
     if mode == "blocage" and not is_admin():

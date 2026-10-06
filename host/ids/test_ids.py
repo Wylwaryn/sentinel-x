@@ -124,6 +124,20 @@ def test_whitelisted_esp_alerted_but_never_blocked(tmp_path):
     assert runner.calls == []
 
 
+def test_esp_recognised_by_mac_whatever_its_ip(tmp_path):
+    """Le DHCP du point d'accès change l'IP de l'ESP : on le reconnaît par sa MAC."""
+    cfg = dict(RESPONSE_CFG, whitelist=[], whitelist_mac=["40:F5:20:0D:5F:21"])
+    runner = FakeRunner()
+    macs = {"192.168.137.6": "40:f5:20:0d:5f:21", "192.168.137.66": "aa:bb:cc:dd:ee:ff"}
+    r = Responder(cfg, [SERVER], devices_mac={"40:f5:20:0d:5f:21": "SX-G2-01"}, ip_to_mac=macs.get,
+                  blocker=FirewallBlocker(ttl_s=300, runner=runner, admin=True), base_dir=tmp_path)
+    esp = r.handle("192.168.137.6", 0.99, "DENI_DE_SERVICE", 0.9, contrib(), ZERO, now=0)
+    assert esp["action"] == "liste_blanche" and esp["numero_serie"] == "SX-G2-01"   # alerté, pas bloqué
+    other = r.handle("192.168.137.66", 0.99, "SCAN_PORTS", 0.9, contrib(), ZERO, now=0)
+    assert other["action"] == "bloquee" and other["numero_serie"] is None
+    r.blocker.unblock_all()
+
+
 def test_block_simulated_without_admin(tmp_path):
     responder, runner = make_responder(tmp_path, admin=False)
     event = responder.handle("192.168.137.66", 0.97, "SCAN_PORTS", 0.9, contrib(), ZERO, now=0)

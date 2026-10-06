@@ -289,7 +289,9 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 - Deux corrections pendant la mise en service :
   1. BearSSL ne vérifie pas une IP dans le SAN : connexion **par IP**. La chaîne reste vérifiée (notre CA, date de validité) ; seule la correspondance de nom est sautée.
   2. Date de repli = heure de compilation (`build_epoch.py`), car le **NTP échoue** : l'ESP n'a pas d'accès Internet par le point d'accès. Recompiler si les certificats sont régénérés.
-- IDS : `192.168.137.2` mappé sur `SX-G2-01` et en liste blanche (alerte, jamais bloqué). Si le DHCP change l'IP de l'ESP, mettre à jour `host/ids/config.json`.
+- **L'IP de l'ESP change à chaque reconnexion** (DHCP du point d'accès : `.2` puis `.6`). L'IDS le reconnaît donc **par sa MAC** (`devices_mac` et `whitelist_mac` dans `host/ids/config.json`) : alerte rattachée à `SX-G2-01`, jamais bloqué. La capture relie IP et MAC à partir des trames.
+- `DISPOSITIF_HORS_LIGNE` vérifié en réel : levée à 09:54:44 UTC quand l'ESP a été débranché, puis retour en ligne.
+- ⚠️ **Firmware : ne jamais téléverser un autre croquis** (par exemple pour tester l'OLED). Il remplace tout : TLS, secrets, télémétrie. Modifier `drawOled()` dans `firmware/src/main.cpp`, puis téléverser **depuis le PC hôte**, qui a `secrets.h`.
 
 **Contrat avec l'API d'ingestion** (format `AlertIn` de `server/ingest/app/models.py`, qui fait foi) :
 - Vision : `POST https://127.0.0.1:8443/api/v1/alerts`, jeton `SENTINEL_VISION_TOKEN`. Champs envoyés : `type`, `level` et `source` dans le vocabulaire de la vision (traduits par l'API), `serie` (= `device_serie` dans `host/vision/config.json`), `score` (confiance YOLO), `pir_confirmed`, `track_id`, `zone`, `detail`, `ts`, `snapshot_jpeg_b64` (alertes critiques).
