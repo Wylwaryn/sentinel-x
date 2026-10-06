@@ -75,7 +75,7 @@ Les ports « toutes interfaces » (443, 8883) sont **restreints au réseau de la
 | 9 | Caddy | API dashboard | interne | HTTP | réseau Docker interne | — | Relais |
 | 10 | API dashboard | PostgreSQL | 5432 interne | SQL | réseau Docker interne | Rôle `sentinel_dashboard` (lecture via vues, création de comptes limitée) | Mesures, alertes, comptes |
 | 11 | API dashboard | Mosquitto | 8883 interne | MQTT | TLS | Compte `dashboard` | Publie les commandes, lit la vidéo |
-| 12 | Synchronisation des visages (PC hôte) | Caddy → API dashboard | 443 via `127.0.0.1` | HTTPS | TLS | Compte `SERVICE_VISION` (lecture des photos de référence uniquement, depuis le PC hôte seulement) | Photos de référence |
+| 12 | Synchronisation des visages (PC hôte) | Caddy → API dashboard | 443 via `127.0.0.1` | HTTPS | TLS | Compte `SERVICE_VISION` : lecture des photos de référence uniquement. Restriction au PC hôte (`10.0.2.2`) codée et fusionnée le 6 oct., **active après redéploiement par la VM** (voir `CLAUDE.md`) | Photos de référence |
 | 13 | Administrateur (PC hôte) | VM | 2222 → 22 | SSH | SSH | Clé uniquement (mot de passe désactivé jeudi) | Administration |
 
 ## 5. Réseaux Docker (cloisonnement dans la VM)
@@ -98,7 +98,7 @@ Les ports « toutes interfaces » (443, 8883) sont **restreints au réseau de la
 | PC hôte | Pare-feu Windows (`host/hardening/windows_firewall.ps1`) | Désactive 109 règles d'entrée superflues ; n'autorise que 8883, 443, DHCP 67 et DNS 53 **depuis `192.168.137.0/24`** | Mercredi soir (réversible) |
 | VM | UFW (`server/hardening/firewall.sh`) | Refus par défaut ; SSH depuis `10.0.2.2` seulement | Mercredi soir |
 | Conteneurs | Chaîne `DOCKER-USER` (même script) | 8883 et 443 depuis `10.0.2.2` et `192.168.137.0/24` ; 8443 depuis `10.0.2.2` seulement ; le reste est journalisé puis bloqué | Mercredi soir |
-| Sorties de la VM | `firewall.sh --egress` | Bloque toute sortie sauf DNS et NTP (empêche un reverse shell) | Jeudi, après le gel du code |
+| Sorties de la VM | `firewall.sh --egress` | Bloque toute sortie sauf DNS, NTP et les réseaux Docker internes de la VM (172.16.0.0/12, nécessaires aux conteneurs) : empêche un reverse shell | Jeudi, après le gel du code |
 
 Docker publie ses ports **avant** UFW : c'est pour ça que les ports des conteneurs sont filtrés dans `DOCKER-USER`, et pas dans UFW.
 
