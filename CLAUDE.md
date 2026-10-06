@@ -101,6 +101,14 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 - **8443 validé** (connexion du PC hôte comptée par la règle `10.0.2.2`). **8883 depuis le Wi-Fi validé** (2 reconnexions de l'ESP comptées par la règle `192.168.137.0/24`, même avec son IP qui change). **Liste blanche entièrement validée, 0 connexion légitime qui aurait été bloquée** : prête pour mercredi soir. ~~Test demandé~~ : Pendant que l'observation tourne, ouvrir au moins une **nouvelle** connexion depuis Windows vers 8883 (vision, maintenance prédictive ou ESP) et vers 8443 (une alerte, ou `curl https://127.0.0.1:8443/healthz`). Puis écrire « → VM : test observation fait » : la VM vérifiera que les compteurs des règles d'autorisation montent et que rien de légitime n'apparaît dans les « serait bloqué ».
 - **Quand appliquer : DÉCIDÉ par l'utilisateur (6 oct.).** `firewall.sh --apply` **mercredi soir, en même temps que `windows_firewall.ps1 -Apply`**, puis `--egress` jeudi après le gel (voir la liste en bas de ce fichier).
 
+**→ Dashboard / Windows : droits en base pour la création de comptes et `SERVICE_VISION` : FAIT côté base (6 oct.), appliqué en production.** Fichier `server/db/init/03-comptes-dashboard.sql`, idempotent et rejoué automatiquement sur une base neuve.
+- Rôle `SERVICE_VISION` ajouté à la table `role`.
+- `sentinel_dashboard` : `INSERT (id_role, nom, email, mot_de_passe_hash)` et `UPDATE (actif)` sur `utilisateur`. Toujours refusés : changer un rôle ou un mot de passe, supprimer un compte, forcer `actif` ou les dates à la création.
+- **En plus, en base : un déclencheur interdit à `sentinel_dashboard` de créer un compte `SERVICE_VISION`**, même si l'API était contournée. Ce compte ne se crée qu'au terminal de la VM.
+- `add-user.sh` accepte `SERVICE_VISION` (seule modification dans `dashboard/`, demandée à la VM).
+- Tests : `test_droits.sh` **48/48** sur base neuve (9 nouveaux) ; `test_dashboard.sh` inchangé (77/78, faux positif `:0` connu).
+- ⚠️ **→ Dashboard : NE PAS créer le compte `SERVICE_VISION` tant que votre API ne le restreint pas.** Aujourd'hui, tout compte connecté qui n'est ni OPERATEUR ni ADMIN a la lecture complète (alertes, mesures, vidéo, liste des utilisateurs) : un compte de service aurait donc tout ça. Écrivez « → VM : SERVICE_VISION restreint dans l'API » une fois la restriction faite et testée (403 partout sauf les deux routes d'images). L'utilisateur créera alors le compte (`sudo ../dashboard/api/add-user.sh vision-sync@sentinel.local "Synchronisation vision" SERVICE_VISION`), et la VM écrira « → Windows : SERVICE_VISION prêt ».
+
 **→ Windows : `personne_reconnue` en service (6 oct., 14:50).** `POST /api/v1/alerts` accepte `personne_reconnue` (ou `id_personne_reconnue`), un entier `id_utilisateur` écrit dans `alerte.id_personne_reconnue`.
 - **Seulement pour `VISION_IA`/`FUSION`** : un autre client ou une autre origine (PIR, IDS) reçoit 422.
 - Id inconnu : **422** « personne_reconnue inconnue » (pas 500). Valeur ≤ 0 ou non entière : 422.
@@ -156,7 +164,7 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 
 | Composant | Script | Résultat |
 |---|---|---|
-| Droits PostgreSQL | `db/tests/test_droits.sh` (base de test) | 39 OK |
+| Droits PostgreSQL | `db/tests/test_droits.sh` (base de test) | 48 OK |
 | Mosquitto (TLS, authentification, ACL des 6 comptes, limites) | `mosquitto/tests/test_mqtt.sh` | 45 OK |
 | Dashboard + Caddy (session dashboard) | `../dashboard/api/tests/test_dashboard.sh` (pile isolée) | 77 OK, 1 faux positif (voir ci-dessus) |
 | API d'ingestion (HTTPS, jetons, contrat, validation, injection, captures, télémétrie, hors ligne, personne reconnue) | `ingest/tests/test_ingest.sh` (pile isolée) | 68 OK |
