@@ -1,39 +1,114 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "./api.js";
 import { dateHeure } from "./format.js";
 
-// Images de référence (reconnaissance des personnes autorisées) : ADMIN uniquement, vérifié par l'API
-export default function ImagesReference() {
+const COTE_MAX = 640; // la reconnaissance n'a pas besoin de plus (et l'envoi reste léger)
+
+// Image de la caméra -> JPEG (qualité 0,9, plus grand côté 640 px)
+function capturer(video) {
+  const echelle = Math.min(1, COTE_MAX / Math.max(video.videoWidth, video.videoHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(video.videoWidth * echelle);
+  canvas.height = Math.round(video.videoHeight * echelle);
+  canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+  return new Promise((ok) => canvas.toBlob(ok, "image/jpeg", 0.9));
+}
+
+// Images de référence (reconnaissance des membres de l'équipe) : ADMIN uniquement, vérifié par l'API.
+// Photo prise avec la caméra de l'appareil qui affiche le dashboard, ou fichier JPEG.
+export default function ImagesReference({ choisi, version }) {
   const [images, setImages] = useState([]);
   const [utilisateurs, setUtilisateurs] = useState([]);
   const [pour, setPour] = useState("");
   const [fichier, setFichier] = useState(null);
   const [message, setMessage] = useState("");
+  const [cameraOuverte, setCameraOuverte] = useState(false);
+  const [apercu, setApercu] = useState(null); // { blob, url } de la photo prise, avant envoi
+  const videoRef = useRef(null);
+  const fluxRef = useRef(null);
+  const sectionRef = useRef(null);
 
   async function charger() {
     const [i, u] = await Promise.all([api("/images-reference"), api("/utilisateurs")]);
     setImages(i);
-    setUtilisateurs(u);
-    setPour((p) => p || String(u[0]?.id_utilisateur ?? ""));
+    const personnes = u.filter((x) => x.role !== "SERVICE_VISION" && x.actif);
+    setUtilisateurs(personnes);
+    setPour((p) => p || String(personnes[0]?.id_utilisateur ?? ""));
   }
 
   useEffect(() => {
     charger().catch((e) => setMessage(e.message));
-  }, []);
+  }, [version]);
 
-  async function ajouter(e) {
-    e.preventDefault();
+  // « Photos » ou compte tout juste créé : on sélectionne la personne et on amène la section à l'écran
+  useEffect(() => {
+    if (choisi) {
+      setPour(String(choisi));
+      sectionRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [choisi]);
+
+  function arreterCamera() {
+    fluxRef.current?.getTracks().forEach((t) => t.stop());
+    fluxRef.current = null;
+    setCameraOuverte(false);
+  }
+
+  // Caméra coupée si on quitte l'écran (déconnexion, fermeture)
+  useEffect(() => arreterCamera, []);
+
+  // La balise <video> n'existe qu'une fois la caméra ouverte : on y branche le flux après l'affichage
+  useEffect(() => {
+    if (cameraOuverte && videoRef.current) videoRef.current.srcObject = fluxRef.current;
+  }, [cameraOuverte]);
+
+  async function ouvrirCamera() {
+    setMessage("");
+    setApercu(null);
+    try {
+      fluxRef.current = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      setCameraOuverte(true);
+    } catch (err) {
+      setMessage(`Caméra indisponible : ${err.name === "NotAllowedError" ? "accès refusé" : err.message}`);
+    }
+  }
+
+  async function prendrePhoto() {
+    const blob = await capturer(videoRef.current);
+    arreterCamera(); // dès la photo prise
+    setApercu({ blob, url: URL.createObjectURL(blob) });
+  }
+
+  function oublierApercu() {
+    if (apercu) URL.revokeObjectURL(apercu.url);
+    setApercu(null);
+  }
+
+  async function envoyer(blob) {
     setMessage("");
     try {
       await api(`/images-reference?id_utilisateur=${encodeURIComponent(pour)}`, {
-        methode: "POST", corps: fichier, type: "image/jpeg",
+        methode: "POST", corps: blob, type: "image/jpeg",
       });
-      setFichier(null);
-      e.target.reset();
-      setMessage("Image ajoutée");
+      const nb = images.filter((i) => String(i.id_utilisateur) === pour && i.active).length + 1;
+      setMessage(`Photo ajoutée (${nb} active${nb > 1 ? "s" : ""} pour cette personne ; 3 à 5 conseillées)`);
       await charger();
+      return true;
     } catch (err) {
       setMessage(`Ajout refusé : ${err.message}`);
+      return false;
+    }
+  }
+
+  async function envoyerApercu() {
+    if (await envoyer(apercu.blob)) oublierApercu();
+  }
+
+  async function envoyerFichier(e) {
+    e.preventDefault();
+    if (await envoyer(fichier)) {
+      setFichier(null);
+      e.target.reset();
     }
   }
 
@@ -47,16 +122,47 @@ export default function ImagesReference() {
   }
 
   return (
-    <section className="panneau">
+    <section className="panneau" ref={sectionRef}>
       <h2>Images de référence (ADMIN)</h2>
-      <form className="formulaire" onSubmit={ajouter}>
-        <select value={pour} onChange={(e) => setPour(e.target.value)} required>
+      <p className="vide">
+        3 à 5 photos par personne : de face, léger profil gauche et droit, un seul visage, bonne lumière.
+        Désactiver une image la retire de la reconnaissance à la synchronisation suivante.
+      </p>
+
+      <div className="formulaire">
+        <select key={utilisateurs.length} value={pour} onChange={(e) => setPour(e.target.value)}>
           {utilisateurs.map((u) => (
             <option key={u.id_utilisateur} value={u.id_utilisateur}>{u.nom} ({u.role})</option>
           ))}
         </select>
+        {!cameraOuverte && !apercu && (
+          <button className="bouton bouton-actif" onClick={ouvrirCamera} disabled={!pour}>Prendre une photo</button>
+        )}
+      </div>
+
+      {cameraOuverte && (
+        <div className="prise-photo">
+          <video ref={videoRef} autoPlay playsInline muted className="video" />
+          <div className="alerte-actions">
+            <button className="bouton bouton-actif" onClick={prendrePhoto}>📸 Capturer</button>
+            <button className="bouton" onClick={arreterCamera}>Annuler</button>
+          </div>
+        </div>
+      )}
+      {apercu && (
+        <div className="prise-photo">
+          <img src={apercu.url} alt="Photo prise" className="video" />
+          <div className="alerte-actions">
+            <button className="bouton bouton-actif" onClick={envoyerApercu}>Envoyer</button>
+            <button className="bouton" onClick={() => { oublierApercu(); ouvrirCamera(); }}>Reprendre</button>
+            <button className="bouton" onClick={oublierApercu}>Annuler</button>
+          </div>
+        </div>
+      )}
+
+      <form className="formulaire" onSubmit={envoyerFichier}>
         <input type="file" accept="image/jpeg" required onChange={(e) => setFichier(e.target.files[0] ?? null)} />
-        <button className="bouton" type="submit" disabled={!fichier || !pour}>Ajouter</button>
+        <button className="bouton" type="submit" disabled={!fichier || !pour}>Envoyer le fichier</button>
       </form>
       {message && <p className="vide">{message}</p>}
 
