@@ -408,6 +408,20 @@ Les photos de visages sont des données biométriques : la section « Images de 
 - LED critique : une seule commande `clignote` avec `duree_ms` 30 min, puis `off` quand plus aucune alerte critique n'attend. Compatible avec le firmware **une fois téléversé** : l'ESP a encore l'ancien firmware, qui ignore `duree_ms` et rend la main au bout de 60 s.
 - **À faire VM** : déployer (`HOST_ONLY_IPS=10.0.2.2,192.168.137.1`, `DASHBOARD_ORIGINS` avec `https://127.0.0.1`), `test_dashboard.sh` (132), puis écrire « → Windows : poste hôte déployé ». La session Windows testera alors les deux adresses du PC hôte.
 
+**→ IoT : tu deviens responsable de `firmware/src/` (décision de l'utilisateur, 6 oct., soir).** Tu as l'ESP et tu testes le câblage : tu modifies et tu téléverses toi-même. La session Windows **ne modifie plus `firmware/`** ; elle relit ce que tu pousses et le fusionne dans `main`.
+1. **Avant toute modification**, récupérer `main` dans ta branche : `git checkout firmware && git pull origin main`. `main` contient des corrections que tu n'as pas encore (commit `fd9476c`) :
+   - ESP qui ne se connectait jamais s'il démarrait avant le point d'accès (heure TLS) ;
+   - LED rouge restée allumée après le mode secours ;
+   - bandeau d'alerte de l'OLED ;
+   - `duree_ms` sur les LED (utilisé par la LED rouge automatique du dashboard).
+2. **Compiler et téléverser avec PlatformIO** (extension VS Code) dans le dossier `firmware/`, **pas avec Arduino IDE**. `platformio.ini` injecte l'heure de compilation (`build_epoch.py`) : sans elle, la compilation s'arrête volontairement (`#error BUILD_EPOCH`), sinon l'ESP refuserait le certificat du broker. Commandes : `pio run -t upload`, puis `pio device monitor`.
+3. **`include/secrets.h`** (jamais dans Git, déjà dans `.gitignore`) : copier `secrets.example.h`, puis le compléter avec le Wi-Fi de la table et le mot de passe MQTT du compte `esp`. L'utilisateur te le transmet en privé (clé USB ou message direct, pas un salon partagé). Ne jamais le committer ni le coller dans `CLAUDE.md`.
+4. **Ne pas changer** : `SERIE` (`SX-G2-01`), le format de télémétrie, les topics, la connexion par IP au broker (`192.168.137.1`), ni la vérification TLS (pas de `setInsecure()`). Ce sont des contrats avec l'API, la vision et la base. Pour les changer, écrire une demande « → VM » ou « → Windows ».
+5. **Pousser sur ta branche `firmware`**, puis écrire « → Windows : firmware à relire » avec ce qui a changé. La session Windows relit, fusionne, et signale tout problème ici.
+6. ⚠️ Si tu téléverses un croquis de `sensor-tests/`, il remplace tout (TLS, secrets, télémétrie) : penser à re-téléverser le vrai firmware ensuite.
+
+**Et le problème rencontré ?** Décris-le ici (symptôme, moniteur série), même avant de l'avoir résolu : il est peut-être déjà corrigé dans `main` (point 1).
+
 ### Demandes à la session VM
 
 **→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :
@@ -595,6 +609,8 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 
 - **Session Windows** : `host/` (vision, IA réseau), `docs/`, coordination.
 - **Session VM** : `server/` (Mosquitto, API d'ingestion, compose, Caddy).
+- **Session IoT** (Charlotte) : `firmware/` (depuis le 6 oct. au soir). La session Windows relit et fusionne.
+- **Session dashboard** (Stève-John) : `dashboard/`.
 - Toujours faire `git pull --rebase` avant de commencer et `git push` dès qu'une brique fonctionne.
 
 ## Conventions
