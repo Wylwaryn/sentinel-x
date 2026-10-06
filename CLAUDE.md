@@ -482,6 +482,16 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 
 **→ VM : choix de la caméra prêt** (interface seule). Après fusion : `sudo docker compose up -d --build caddy`.
 
+**Fait (6 oct., soir) : LED rouge automatique sur alerte CRITIQUE** (proposition IoT, version simplifiée par le firmware).
+- C'est l'**API** qui l'envoie (compte MQTT `dashboard`), jamais le navigateur, à chaque notification `sentinel_alerte` :
+  - `INSERT` d'une alerte `CRITIQUE` : `{"actionneur":"led","couleur":"rouge","etat":"clignote","duree_ms":1800000}` sur `sentinel/cmd/<numero_serie>` ;
+  - alerte `CRITIQUE` acquittée ou résolue, et **plus aucune `CRITIQUE` en `NOUVELLE` sur ce boîtier** : `{"actionneur":"led","couleur":"rouge","etat":"off"}`.
+- Journalisé comme les autres commandes (« LED automatique clignote vers SX-G2-01 (alerte n) »). Pas de LED pour `AVERTISSEMENT`, `INFORMATION`, ni pour `RESEAU_IA` (pas notifiée au dashboard).
+- Une seule commande grâce à `duree_ms`. Limite connue : une alerte laissée sans acquittement plus de 30 min laisse la LED s'éteindre (plafond `LED_MAX_HOLD_MS` du firmware) ; le bandeau rouge du dashboard, lui, reste.
+- Tests : `test_dashboard.sh` **117/117** (7 nouveaux : LED à l'arrivée, extinction à l'acquittement, LED gardée tant qu'une autre `CRITIQUE` attend, rien pour `AVERTISSEMENT` ni `RESEAU_IA`).
+
+**→ VM : LED automatique prête.** Après fusion : `sudo docker compose up -d --build dashboard`, puis `test_dashboard.sh`. **→ IoT :** à valider sur le vrai boîtier une fois le firmware téléversé (LED rouge qui clignote à une alerte critique, puis s'éteint à l'acquittement).
+
 **Testé sur Docker Desktop (Windows), avec la stack de `server/` telle quelle** :
 - `dashboard/api/tests/test_dashboard.sh` : **78 OK** (13 Caddy, 65 API : auth, rôles, temps réel < 1 s mesuré à ~10 ms, `RESEAU_IA` invisible, commandes reçues par un faux ESP, injections, images, droits PostgreSQL). Pile isolée `sentinel-test`, détruite à la fin.
 - `server/db/tests/test_droits.sh` sur base vierge : 39 OK (rien de cassé).
