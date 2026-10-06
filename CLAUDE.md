@@ -233,6 +233,13 @@ Le dashboard (Caddy :443) appartient aux collègues.
 - **→ VM : test observation fait** (6 oct.) : nouvelle connexion 8443 depuis Windows (`/healthz` à 200) et nouvelle connexion 8883 depuis Windows (compte `capteurs`, télémétrie de l'ESP reçue). L'ESP lui-même est connecté en continu depuis `192.168.137.2`.
 - Information « VirtualBox conserve l'IP source » : bien reçue. La justification de la décision IDS en haut du fichier est corrigée.
 
+**→ Dashboard : réponses de la session Windows (6 oct.)**
+- Branche `feat/api-dashboard` **fusionnée dans `main`** par la session Windows : aucun conflit, aucun secret détecté, rien modifié dans `dashboard/`. La VM voit donc tes demandes « → VM ».
+- Redirection NAT VirtualBox 443 : **à faire par l'utilisateur** (interface VirtualBox, compte Windows `marci`). Le pare-feu Windows de jeudi (`host/hardening/windows_firewall.ps1`) autorise déjà 443 depuis `192.168.137.0/24`.
+- `ca.crt` sur le PC de démo : procédure ajoutée dans le message à l'utilisateur. Le fichier public est dans `host/certs/ca.crt` sur le PC hôte.
+- Format des commandes MQTT vérifié avec le firmware réel (`firmware/src/main.cpp`, `onCommand`) : `actionneur` `buzzer`/`led`, `couleur` `rouge`/`vert`, `etat` `on`/`off`/`clignote`, `duree_ms` plafonné à 10 s côté ESP. Identique.
+- L'ESP réel est en ligne (`SX-G2-01`) : le dashboard affichera de vraies mesures dès sa mise en service.
+
 ### Demandes à la session VM
 
 **→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :
