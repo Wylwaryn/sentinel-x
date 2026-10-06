@@ -324,6 +324,29 @@ async def main():
     check(code("GET", "/api/v1/images-reference", cookie=service, ip="192.168.137.66"), 403,
           "session de service volée, rejouée depuis une autre IP : 403 à chaque requête")
 
+    print("== Utilisateurs et images : PC hôte seulement, même pour un ADMIN ==")
+    AILLEURS = "192.168.137.66"   # un poste du Wi-Fi (simulé comme si Caddy l'avait posé)
+    check(corps_json("GET", "/api/v1/auth/me", cookie=admin)["utilisateur"]["poste_hote"], True,
+          "/auth/me depuis le PC hôte : poste_hote true")
+    check(corps_json("GET", "/api/v1/auth/me", cookie=admin, ip=AILLEURS)["utilisateur"]["poste_hote"], False,
+          "/auth/me depuis un autre poste : poste_hote false")
+    for methode, chemin, corps, label in [
+        ("GET", "/api/v1/utilisateurs", None, "liste des utilisateurs"),
+        ("POST", "/api/v1/utilisateurs", {"nom": "Pirate", "email": "pirate@test.local", "role": "ADMIN",
+                                          "mot_de_passe": "un-mot-de-passe-solide", "mot_de_passe_admin": S["password"]},
+         "créer un compte ADMIN"),
+        ("PATCH", f"/api/v1/utilisateurs/{uid}", {"actif": False}, "désactiver un compte"),
+        ("GET", "/api/v1/images-reference", None, "liste des images"),
+        ("GET", f"/api/v1/images-reference/{id_image}/fichier", None, "fichier d'une image"),
+        ("PATCH", f"/api/v1/images-reference/{id_image}", {"active": True}, "activer une image"),
+    ]:
+        check(code(methode, chemin, corps, cookie=admin, ip=AILLEURS), 403, f"ADMIN hors PC hôte : {label} refusé (403)")
+    check(code("POST", f"/api/v1/images-reference?id_utilisateur={uid}", JPEG, cookie=admin, type_="image/jpeg",
+               ip=AILLEURS), 403, "ADMIN hors PC hôte : envoi d'image refusé (403)")
+    check(admin_sql("SELECT count(*) FROM utilisateur WHERE email = 'pirate@test.local'")[0], 0,
+          "aucun compte créé depuis l'autre poste")
+    check(code("GET", "/api/v1/dispositifs", cookie=admin, ip=AILLEURS), 200, "le reste du dashboard marche ailleurs")
+
     print("== Utilisateurs (ADMIN) ==")
     compte = {"nom": "Nouveau membre", "email": "Nouveau@Test.local", "role": "LECTEUR",
               "mot_de_passe": "un-mot-de-passe-solide", "mot_de_passe_admin": S["password"]}
