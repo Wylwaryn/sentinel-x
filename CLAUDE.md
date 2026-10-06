@@ -84,7 +84,18 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 - **API d'ingestion sur 8443** (`server/ingest/`, 59 tests OK sur une pile isolée).
 - Supervision `sentinel-monitor` (timer chaque minute).
 
-**Statut VM : EN ATTENTE.** Étapes 1, 2, 5 (préparée), 6 et 7 terminées. Prochaine action VM : « → VM : appliquer le durcissement » jeudi matin, ou l'IP du point d'accès si elle n'est pas `192.168.137.1`.
+**Statut VM : EN ATTENTE.** Étapes 1, 2, 5 (préparée), 6 et 7 terminées, plus le script de pare-feu de la VM (demandé par l'utilisateur le 6 oct.). Prochaine action VM : « → VM : appliquer le durcissement », ou le résultat du test d'observation ci-dessous.
+
+**Incident du 6 oct. (résolu)** : après le redémarrage de la VM à 09:35, **Mosquitto ne s'est pas relancé** jusqu'à 10:39. Cause probable : un rechargement par `docker kill -s HUP` la veille, qui marque le conteneur comme « arrêté manuellement ». Corrigé : `gen-passwd.sh` recharge maintenant de l'intérieur (`docker compose exec mosquitto kill -HUP 1`). Si la vision, l'ESP ou la maintenance prédictive ont « perdu » le broker ce matin, c'est cette coupure.
+
+**→ Windows : pare-feu de la VM prêt, pendant de `windows_firewall.ps1` (rien n'est appliqué).** `server/hardening/firewall.sh` :
+- **Simulation par défaut**, `--apply`, `--restore` (sauvegarde complète faite au premier `--apply`). `apply.sh` l'appelle pour sa partie pare-feu.
+- **Entrées de la VM (UFW)** : refus par défaut, SSH 22 autorisé **seulement depuis `10.0.2.2`** (la passerelle NAT VirtualBox, donc via `127.0.0.1:2222` côté Windows).
+- **Ports des conteneurs (`DOCKER-USER`)** : Docker contourne UFW. Liste blanche 8883, 8443 et 443 (Caddy, plus tard) depuis `10.0.2.2` ; tout le reste vers un conteneur est journalisé (`journalctl -k | grep SENTINEL`) puis bloqué, en IPv4 et IPv6. Un port publié par erreur, comme 5432, resterait bloqué. Règles stockées dans `/etc/ufw/after*.rules`, donc persistantes.
+- **`--egress` (option, NON décidée)** : bloque les sorties de la VM et des conteneurs sauf DNS et NTP. Ça empêche un reverse shell pendant le pentest, mais coupe aussi `git pull`, `apt` et `docker pull`. À n'activer qu'après le gel du code, si l'utilisateur le décide.
+- **`--observe`** : même liste blanche, mais **journalise au lieu de bloquer** (non persistant). **Actif depuis le 6 oct. 10:50**, sans aucun effet sur le trafic.
+- **→ Windows : test demandé.** Pendant que l'observation tourne, ouvrir au moins une **nouvelle** connexion depuis Windows vers 8883 (vision, maintenance prédictive ou ESP) et vers 8443 (une alerte, ou `curl https://127.0.0.1:8443/healthz`). Puis écrire « → VM : test observation fait » : la VM vérifiera que les compteurs des règles d'autorisation montent et que rien de légitime n'apparaît dans les « serait bloqué ».
+- **Quand appliquer ?** C'est à l'utilisateur de décider. Proposition : mercredi soir, en même temps que `windows_firewall.ps1 -Apply`, pour détecter une casse avant le pentest.
 
 **→ Windows : compte capteurs prêt.** Compte MQTT `capteurs`, lecture seule de `sentinel/telemetry`, `client_id` libre (`sentinel-capteurs` conseillé). Mot de passe `MQTT_CAPTEURS_PASSWORD` à récupérer seul : `ssh sentinel-vm sudo grep MQTT_CAPTEURS_PASSWORD /opt/sentinel-x/server/.env`.
 
@@ -95,7 +106,7 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
   - `sshd -t` avant le rechargement, avec retour arrière en cas d'erreur ;
   - le sudoers n'est supprimé que si `wyllwaryn` est dans le groupe `sudo` et a un mot de passe.
   **L'utilisateur doit connaître le mot de passe de `wyllwaryn` avant jeudi.**
-- `sudo hardening/verify.sh` (`--markdown` pour le dossier) : aujourd'hui **34 OK, 7 À FAIRE (exactement ceux d'`apply.sh`), 0 KO**, plus 4 contrôles manuels (redirections VirtualBox, presse-papiers et glisser-déposer, deploy key, pare-feu Windows).
+- `sudo hardening/verify.sh` (`--markdown` pour le dossier) : aujourd'hui **36 OK, 10 À FAIRE (exactement ceux d'`apply.sh` et de `firewall.sh`), 0 KO**, plus 4 contrôles manuels (redirections VirtualBox, presse-papiers et glisser-déposer, deploy key, pare-feu Windows).
 - Écart avec la liste du bas de ce fichier : UFW n'autorise que 22, comme demandé dans la section Windows. Ouvrir 443 et 8883 dans UFW ne servirait à rien, puisque Docker publie ces ports en contournant UFW.
 
 **→ Windows : étape 6 prête.** Supervision installée et active (`server/monitoring/`) :
@@ -127,7 +138,7 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 | Droits PostgreSQL | `db/tests/test_droits.sh` (base de test) | 39 OK |
 | Mosquitto (TLS, authentification, ACL des 6 comptes, limites) | `mosquitto/tests/test_mqtt.sh` | 45 OK |
 | API d'ingestion (HTTPS, jetons, contrat, validation, injection, captures, télémétrie, hors ligne) | `ingest/tests/test_ingest.sh` (pile isolée) | 59 OK |
-| Conformité de la VM | `hardening/verify.sh` | 34 OK, 7 à faire jeudi, 0 KO |
+| Conformité de la VM | `hardening/verify.sh` | 36 OK, 10 à faire jeudi, 0 KO |
 
 La session VM surveille ce fichier (vérification Git toutes les minutes) et ne passe à la suite qu'avec un feu vert écrit dans la section Windows. Elle ne prend aucune décision hors plan.
 Pour lui parler : écrire dans la section Windows une ligne « **→ VM :** … », puis pousser.
@@ -275,7 +286,8 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 
 - `docker compose exec` et `ssh` lisent l'entrée standard : dans un script heredoc, ajouter `</dev/null`, sinon ils avalent la suite du script.
 - PowerShell 5.1 abîme les guillemets passés à `ssh` : piloter la VM depuis Git Bash (outil Bash).
-- Docker publie ses ports avant UFW : une règle UFW ne bloque PAS 8883 ni 443. Le filtrage se fait au niveau de la redirection NAT VirtualBox et du pare-feu Windows.
+- Docker publie ses ports avant UFW : une règle UFW ne bloque PAS 8883 ni 443. Côté VM, le filtrage passe par la chaîne `DOCKER-USER` (`server/hardening/firewall.sh`), en plus de la redirection NAT VirtualBox et du pare-feu Windows.
+- Ne jamais recharger un conteneur avec `docker kill -s <signal>` : Docker le marque « arrêté manuellement » et `restart: unless-stopped` ne le relance plus au démarrage. Utiliser `docker compose exec <service> kill -HUP 1`.
 - L'image postgres fait confiance aux connexions locales par défaut. D'où `POSTGRES_INITDB_ARGS=--auth-local=scram-sha-256 --auth-host=scram-sha-256`.
 - La RTX 5050 (Blackwell) exige PyTorch `cu128` ou plus. Webcam USB = index 1 (l'index 0 est la caméra intégrée HP).
 
