@@ -479,21 +479,22 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 
 **Fait :**
 - Tests unitaires dans `firmware/sensor-tests/` : un onglet `.ino` par capteur (PIR, MQ-2, DHT22, OLED) et `actuators.ino` (mêmes commandes JSON que le dashboard). Croquis Arduino IDE **de test seulement** : ne jamais les téléverser sur l'ESP en service.
-- Détection de hausse de gaz combustible (MQ-2 comparé à sa propre ligne de base) dans `gas.ino`. Le MQ-2 ne distingue pas le méthane des autres gaz combustibles.
 - Câblage aligné sur `config.h` : DHT22 D5, PIR D6, LED rouge D7, LED verte D0, buzzer D8, MQ-2 A0 via pont diviseur, OLED D2/D1, PIR et MQ-2 sur VU.
-- Commandes du dashboard reçues par l'ESP (`[CMD]` visible dans le moniteur série).
-- Les 3 propositions pour `main.cpp` ont été appliquées par la session Windows : merci.
-
-**En cours :**
-- Confirmer à l'œil et à l'oreille la réaction du buzzer et des LED aux commandes du dashboard.
+- Actionneurs validés depuis le dashboard (6 oct.) : le buzzer et les LED réagissent aux commandes.
+- Les 3 propositions pour `main.cpp` (PIR ignoré à la calibration, gaz `null` en préchauffe ou en défaut, LED automatique après commande) et la ligne de base du gaz (`gasRise`) sont appliquées par la session Windows : merci.
+- L'OLED affiche déjà l'état utile : `MQTTS SECOURS`, `PIR MOUVEMENT`, `Gaz -- (defaut)` ou `(prechauf.)`, et la dernière commande.
+- Schéma de câblage dessiné.
+- Limite connue : le MQ-2 réagit à tous les gaz combustibles et ne distingue pas le méthane. Pas de changement prévu.
 
 **À faire :**
-- Alerte locale sur l'OLED (SECOURS, GAZ COMBUSTIBLE, CAPTEUR HS, MOUVEMENT) dans `drawOled()` : à valider avec la session Windows.
-- Capteur de méthane dédié (MQ-4) si disponible au myDiL.
+- Mesures des composants et position du port USB pour le boîtier (Maxime).
 - Alimentation de production (bloc 7,5 V + convertisseur 5 V) : mesurer au multimètre avant de brancher les capteurs, jamais avec l'USB.
-- Schéma de câblage et documentation du firmware (livrables du dossier).
+- Tableau de câblage et documentation du firmware (livrables du dossier).
+- Affichage OLED, optionnel : pas de bandeau ni d'alerte clignotante en haut de l'écran, et pas de message « hausse de gaz ». La hausse de gaz (`rising`, `gasSpike`) n'agit aujourd'hui que sur la LED rouge et le buzzer du mode secours, jamais sur l'écran.
 
-**→ Windows :** réponse sur le brochage : le câblage réel est celui de `config.h` (LED rouge D7, LED verte D0, buzzer D8). Le `sentinel_x.ino` de `sensor-tests/` est corrigé en conséquence. L'ESP est avec moi : dis-moi quand le nouveau firmware est téléversé. Je ne touche pas à `firmware/src/` sans accord.
+**→ Windows :** les actionneurs sont câblés comme `config.h`. L'ESP est avec moi : peux-tu téléverser le firmware à jour depuis le PC hôte ? Je valide ensuite une dernière fois depuis le dashboard.
+
+**→ Windows :** question : l'écran d'état actuel te suffit-il, ou veux-tu un bandeau d'alerte (hausse de gaz, intrusion) dans `drawOled()` ? Si oui, je t'écris le code, tu le relis et tu téléverses.
 
 **→ Dashboard :** proposition : à la réception d'une alerte `CRITIQUE`, publier automatiquement la commande LED rouge « clignote » sur `sentinel/cmd/<numero_serie>`, puis « off » quand l'alerte est acquittée ou résolue. Le firmware gère déjà la commande ; il rend la main au mode automatique après `LED_MANUAL_HOLD_MS` (60 s), donc renvoyer la commande toutes les 50 s tant que l'alerte est ouverte.
 
