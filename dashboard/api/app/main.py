@@ -8,6 +8,9 @@ Le compte de service SERVICE_VISION (synchronisation des visages) n'a droit qu'�
 de référence : toute autre route le refuse (403), y compris le WebSocket. Il n'est accepté que depuis
 les IP de SERVICE_VISION_IPS (le PC hôte, 10.0.2.2 dans la VM), à la connexion et à chaque requête.
 
+Utilisateurs et images de référence (données biométriques) : ADMIN ET poste hôte (HOST_ONLY_IPS). Un ADMIN
+connecté depuis un autre poste (session volée, poste laissé ouvert) ne peut ni créer de compte ni voir les visages.
+
 IP du client : uvicorn --proxy-headers (Dockerfile) remplace request.client par l'IP que Caddy met dans
 X-Forwarded-For. Caddy écrase ce que le client envoie (pas de trusted_proxies) : l'en-tête ne se forge pas.
 """
@@ -164,9 +167,23 @@ async def connecte(u: Annotated[Utilisateur, Depends(session)]) -> Utilisateur:
     return u
 
 
-async def lecteur_images(u: Annotated[Utilisateur, Depends(session)]) -> Utilisateur:
+def _poste_hote(request: Request) -> bool:
+    return _ip(request) in settings.host_only_ips
+
+
+def _exiger_poste_hote(u: Utilisateur, request: Request):
+    if not _poste_hote(request):
+        log.warning("ADMIN %s refusé hors du PC hôte depuis %s : %s %s",
+                    u.id_utilisateur, _ip(request), request.method, request.url.path)
+        raise HTTPException(403, "réservé au PC hôte")
+
+
+async def lecteur_images(request: Request, u: Annotated[Utilisateur, Depends(session)]) -> Utilisateur:
+    """ADMIN depuis le PC hôte, ou compte de service (sa propre règle d'IP est vérifiée par session)."""
     if u.role not in PEUT_LIRE_IMAGES:
         raise HTTPException(403, "réservé aux administrateurs")
+    if u.role != SERVICE_VISION:
+        _exiger_poste_hote(u, request)
     return u
 
 
@@ -182,11 +199,17 @@ async def admin(u: Annotated[Utilisateur, Depends(connecte)]) -> Utilisateur:
     return u
 
 
+async def admin_hote(request: Request, u: Annotated[Utilisateur, Depends(admin)]) -> Utilisateur:
+    """ADMIN connecté depuis le PC hôte : utilisateurs et images de référence."""
+    _exiger_poste_hote(u, request)
+    return u
+
+
 Session = Annotated[Utilisateur, Depends(session)]
 Connecte = Annotated[Utilisateur, Depends(connecte)]
 LecteurImages = Annotated[Utilisateur, Depends(lecteur_images)]
 Operateur = Annotated[Utilisateur, Depends(operateur)]
-Admin = Annotated[Utilisateur, Depends(admin)]
+AdminHote = Annotated[Utilisateur, Depends(admin_hote)]
 
 
 # ---------------------------------------------------------------- santé
@@ -232,7 +255,8 @@ async def login(body: LoginIn, request: Request):
 
     limiter.succes(*cles)
     log.info("connexion de l'utilisateur %s (%s) depuis %s", row["id_utilisateur"], row["role"], ip)
-    utilisateur = {"id_utilisateur": row["id_utilisateur"], "nom": row["nom"], "role": row["role"]}
+    utilisateur = {"id_utilisateur": row["id_utilisateur"], "nom": row["nom"], "role": row["role"],
+                   "poste_hote": _poste_hote(request)}
     response = JSONResponse({"utilisateur": utilisateur})
     response.set_cookie(COOKIE, tokens.emettre(row["id_utilisateur"]), max_age=tokens.ttl, path="/",
                         httponly=True, secure=settings.cookie_secure, samesite="strict")
@@ -247,8 +271,9 @@ async def logout():
 
 
 @app.get("/api/v1/auth/me")
-async def moi(u: Session):
-    return {"utilisateur": u.model_dump()}
+async def moi(u: Session, request: Request):
+    # poste_hote : l'interface masque Utilisateurs et Images de référence ailleurs (l'API refuse de toute façon).
+    return {"utilisateur": {**u.model_dump(), "poste_hote": _poste_hote(request)}}
 
 
 # ---------------------------------------------------------------- dispositifs et mesures
@@ -345,7 +370,7 @@ async def capture(id_alerte: int, _u: Connecte):
 
 # ---------------------------------------------------------------- images de référence (ADMIN)
 @app.get("/api/v1/utilisateurs")
-async def utilisateurs(_u: Admin):
+async def utilisateurs(_u: AdminHote):
     return await db.utilisateurs()
 
 
@@ -359,7 +384,7 @@ class CompteIn(BaseModel):
 
 
 @app.post("/api/v1/utilisateurs", status_code=201)
-async def creer_utilisateur(body: CompteIn, request: Request, u: Admin):
+async def creer_utilisateur(body: CompteIn, request: Request, u: AdminHote):
     """Création d'un compte par un ADMIN, qui doit ressaisir SON mot de passe : un cookie volé ne suffit pas."""
     ip = _ip(request)
     cles = (f"ip:{ip}", f"admin:{u.id_utilisateur}")
@@ -393,7 +418,7 @@ class ActifIn(BaseModel):
 
 
 @app.patch("/api/v1/utilisateurs/{id_utilisateur}")
-async def activer_utilisateur(id_utilisateur: int, body: ActifIn, u: Admin):
+async def activer_utilisateur(id_utilisateur: int, body: ActifIn, u: AdminHote):
     if id_utilisateur == u.id_utilisateur and not body.actif:
         raise HTTPException(409, "un administrateur ne peut pas désactiver son propre compte")
     if not await db.activer_utilisateur(id_utilisateur, body.actif):
@@ -408,7 +433,7 @@ async def images_reference(_u: LecteurImages):
 
 
 @app.post("/api/v1/images-reference", status_code=201)
-async def ajouter_image(request: Request, u: Admin, id_utilisateur: int):
+async def ajouter_image(request: Request, u: AdminHote, id_utilisateur: int):
     """Corps = l'image JPEG brute (Content-Type: image/jpeg). Le nom du fichier est choisi par le serveur."""
     if request.headers.get("content-type") != "image/jpeg":
         raise HTTPException(415, "JPEG uniquement (Content-Type: image/jpeg)")
@@ -443,7 +468,7 @@ class ActiveIn(BaseModel):
 
 
 @app.patch("/api/v1/images-reference/{id_image}")
-async def activer_image(id_image: int, body: ActiveIn, u: Admin):
+async def activer_image(id_image: int, body: ActiveIn, u: AdminHote):
     if not await db.activer_image(id_image, body.active):
         raise HTTPException(404, "image inconnue")
     log.info("image de référence %s active=%s par %s", id_image, body.active, u.id_utilisateur)

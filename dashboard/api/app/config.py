@@ -26,6 +26,7 @@ class Settings:
     cookie_secure: bool
     allowed_origins: frozenset[str]   # vide = Origin non vérifié (dev uniquement)
     service_vision_ips: frozenset[str]  # IP réelles autorisées pour le compte SERVICE_VISION
+    host_only_ips: frozenset[str]       # IP réelles du PC hôte : utilisateurs et images de référence
     captures_dir: str
     references_dir: str
     max_image_bytes: int
@@ -38,6 +39,9 @@ def load() -> Settings:
     origins = os.environ.get("DASHBOARD_ORIGINS", "")
     # Dans la VM, seul le PC hôte arrive en 10.0.2.2 (passerelle NAT VirtualBox) ; le Wi-Fi garde ses vraies IP.
     service_ips = os.environ.get("SERVICE_VISION_IPS", "10.0.2.2")
+    # PC hôte vu de la VM : 10.0.2.2 par https://127.0.0.1, 192.168.137.1 par https://192.168.137.1
+    # (sa propre adresse sur le point d'accès : un appareil du Wi-Fi ne peut pas l'usurper).
+    host_ips = os.environ.get("HOST_ONLY_IPS", "10.0.2.2,192.168.137.1")
 
     return Settings(
         db_host=os.environ.get("DB_HOST", "postgres"),
@@ -55,6 +59,7 @@ def load() -> Settings:
         cookie_secure=os.environ.get("COOKIE_SECURE", "true").lower() != "false",
         allowed_origins=frozenset(o.strip() for o in origins.split(",") if o.strip()),
         service_vision_ips=frozenset(i.strip() for i in service_ips.split(",") if i.strip()),
+        host_only_ips=frozenset(i.strip() for i in host_ips.split(",") if i.strip()),
         captures_dir=os.environ.get("CAPTURES_DIR", "/data/captures"),
         references_dir=os.environ.get("REFERENCES_DIR", "/data/references"),
         max_image_bytes=int(os.environ.get("MAX_IMAGE_BYTES", str(2 * 1024 * 1024))),
