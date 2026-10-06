@@ -1,0 +1,47 @@
+# Caddy : seul point d'entrée du dashboard (HTTPS/WSS). TLS terminé ici avec le certificat de notre CA
+# (sudo pki/pki.sh server caddy 10003 DNS:sentinel-server,DNS:localhost,IP:127.0.0.1,IP:192.168.137.1).
+{
+	admin off
+	# Certificat fourni : ni ACME, ni écoute HTTP :80 pour la redirection.
+	auto_https off
+	# Navigateur qui se connecte par IP : pas de SNI, on présente quand même notre certificat.
+	default_sni {$CADDY_SNI:sentinel-server}
+	servers {
+		protocols h1 h2
+	}
+}
+
+:8443 {
+	tls /certs/server.crt /certs/server.key {
+		protocols tls1.2 tls1.3
+		# TLS 1.2 : uniquement ECDHE + AEAD (même politique que Mosquitto et l'API d'ingestion)
+		ciphers TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		# style 'unsafe-inline' : attributs style= générés par Recharts. Aucun script en ligne autorisé.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# Image de référence (2 Mo) + marge ; tout le reste est bien plus petit.
+	request_body {
+		max_size 3MB
+	}
+
+	@api path /api/* /ws
+	handle @api {
+		reverse_proxy dashboard:8000
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

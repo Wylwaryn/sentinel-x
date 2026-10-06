@@ -1,0 +1,546 @@
+/* ============================================================
+   Thème sombre "salle de contrôle"
+   Toutes les couleurs sont définies ici, une seule fois (variables CSS)
+   ============================================================ */
+:root {
+  --fond-page: #0d0d0d;
+  --fond-panneau: #1a1a19;
+  --bordure: rgba(255, 255, 255, 0.1);
+  --texte: #ffffff;
+  --texte-secondaire: #c3c2b7;
+  --texte-discret: #898781;
+
+  /* Couleurs d'état : toujours accompagnées d'un texte / icône */
+  --ok: #0ca30c;
+  --attention: #fab219;
+  --critique: #d03b3b;
+  --info: #3987e5;
+
+  font-family: system-ui, "Segoe UI", sans-serif;
+  color: var(--texte);
+  background: var(--fond-page);
+}
+
+body {
+  margin: 0;
+}
+
+/* Conteneur général de la page */
+.page {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ---------- En-tête ---------- */
+.entete {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.entete h1 {
+  margin: 0;
+  font-size: 1.4rem;
+  letter-spacing: 0.08em;
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Petite pastille d'état (en ligne, connexion…) */
+.badge {
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--bordure);
+  font-size: 0.85rem;
+  color: var(--texte-secondaire);
+}
+
+/* ---------- Bandeau d'alerte ---------- */
+.bandeau {
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--bordure);
+  background: var(--fond-panneau);
+  color: var(--texte-secondaire);
+}
+
+/* ---------- Disposition : dispositifs + alertes à gauche, vue principale à droite ---------- */
+.disposition {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.grille {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.colonne {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Sur petit écran (téléphone, demi-écran) : une seule colonne */
+@media (max-width: 900px) {
+  .disposition,
+  .grille {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Panneau générique ---------- */
+.panneau {
+  background: var(--fond-panneau);
+  border: 1px solid var(--bordure);
+  border-radius: 8px;
+  padding: 16px;
+  min-height: 160px;
+}
+
+.panneau h2 {
+  margin: 0 0 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--texte-secondaire);
+}
+
+.vide {
+  color: var(--texte-discret);
+  font-style: italic;
+}
+
+/* Valeur actuelle affichée au-dessus de chaque courbe */
+.valeur {
+  font-size: 1.8rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+/* Couleurs d'état des pastilles et du bandeau */
+.badge-ok {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.badge-critique {
+  color: var(--critique);
+  border-color: var(--critique);
+}
+
+button.badge {
+  background: none;
+  cursor: pointer;
+}
+
+.bandeau-ok {
+  color: var(--ok);
+}
+
+.bandeau-alerte {
+  color: var(--texte);
+  background: var(--critique);
+  font-weight: 600;
+  animation: clignote 1s infinite alternate;
+}
+
+/* Le bandeau d'alerte pulse pour attirer l'œil */
+@keyframes clignote {
+  from { opacity: 1; }
+  to { opacity: 0.6; }
+}
+
+/* ---------- Panneau de commandes ---------- */
+.ligne-commande {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--bordure);
+}
+
+.bouton {
+  margin-left: 6px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--bordure);
+  background: #2c2c2a;
+  color: var(--texte);
+  cursor: pointer;
+}
+
+.bouton:hover:not(:disabled) {
+  filter: brightness(1.3);
+}
+
+.bouton-on {
+  background: var(--critique);
+}
+
+.bouton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ---------- Webcam ---------- */
+.video,
+.scene-vide {
+  width: 100%;
+  aspect-ratio: 4 / 3; /* même format que la webcam 640x480 */
+  border-radius: 6px;
+  background: #000;
+  object-fit: contain;
+}
+
+.scene-vide {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+
+.detection {
+  margin: 8px 0 0;
+  color: var(--ok);
+}
+
+.detection-alerte {
+  color: var(--critique);
+  font-weight: 600;
+}
+
+.badge-attention {
+  color: var(--attention);
+  border-color: var(--attention);
+}
+
+/* ---------- Journal ---------- */
+.journal {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.85rem;
+  color: var(--texte-secondaire);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.journal li {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--bordure);
+}
+
+.journal-heure {
+  color: var(--texte-discret);
+  font-variant-numeric: tabular-nums;
+}
+
+.journal-alerte {
+  color: var(--critique);
+}
+
+/* ---------- Écran de login ---------- */
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.login {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.login h1 {
+  margin: 0;
+  letter-spacing: 0.08em;
+}
+
+.login label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--texte-secondaire);
+  font-size: 0.9rem;
+}
+
+.login input {
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid var(--bordure);
+  background: var(--fond-page);
+  color: var(--texte);
+  font-size: 1rem;
+}
+
+.login .bouton {
+  margin: 0;
+  padding: 10px;
+  font-size: 1rem;
+}
+
+.login-erreur {
+  margin: 0;
+  color: var(--critique);
+}
+
+/* ---------- Ajouts API dashboard ---------- */
+.bandeau-attention {
+  color: var(--attention);
+  border-color: var(--attention);
+}
+
+/* Alerte CRITIQUE : rouge vif, clignotement franc (visible en moins d'une seconde) */
+.bandeau-alerte {
+  font-size: 1.1rem;
+  animation: clignote 0.5s infinite alternate;
+}
+
+/* Listes de la colonne latérale */
+.liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.element {
+  width: 100%;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  text-align: left;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid var(--bordure);
+  background: none;
+  color: var(--texte);
+  cursor: pointer;
+}
+
+.element-actif {
+  border-color: #3987e5;
+  background: rgba(57, 135, 229, 0.12);
+}
+
+.element-texte {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.element small,
+.alerte small {
+  color: var(--texte-secondaire);
+}
+
+.pastille-ok {
+  color: var(--ok);
+}
+
+.pastille-ko {
+  color: var(--critique);
+}
+
+/* Alertes : couleur selon le niveau (bleu, orange, rouge), toujours avec le texte du niveau */
+.alerte {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--bordure);
+  border-left: 4px solid var(--info);
+}
+
+.alerte-titre {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.etiquette {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.niveau-info { border-left-color: var(--info); }
+.niveau-info .etiquette { color: var(--info); }
+.niveau-attention { border-left-color: var(--attention); }
+.niveau-attention .etiquette { color: var(--attention); }
+.niveau-critique { border-left-color: var(--critique); }
+.niveau-critique .etiquette { color: var(--critique); }
+.niveau-critique.alerte-nouvelle {
+  background: rgba(208, 59, 59, 0.18);
+  animation: clignote 0.5s infinite alternate;
+}
+
+.alerte-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.alerte-actions .bouton {
+  margin: 0;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+}
+
+.capture {
+  width: 100%;
+  border-radius: 6px;
+}
+
+/* Tuiles de valeurs du dispositif sélectionné */
+.tuiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  align-items: center;
+  min-height: 0;
+}
+
+.tuiles > div:first-child {
+  grid-column: 1 / 4;
+}
+
+.tuiles h2 {
+  margin: 0;
+}
+
+.tuiles p {
+  margin: 4px 0 0;
+}
+
+.tuiles .badge {
+  justify-self: end;
+}
+
+.tuile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid var(--bordure);
+}
+
+.tuile span {
+  color: var(--texte-secondaire);
+  font-size: 0.8rem;
+}
+
+.tuile strong {
+  font-size: 1.4rem;
+}
+
+.tuile-alerte {
+  border-color: var(--critique);
+  color: var(--critique);
+}
+
+@media (max-width: 600px) {
+  .tuiles {
+    grid-template-columns: 1fr 1fr;
+  }
+  .tuiles > div:first-child {
+    grid-column: 1 / 3;
+  }
+}
+
+.periodes {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--texte-secondaire);
+}
+
+.bouton-actif {
+  border-color: #3987e5;
+  background: rgba(57, 135, 229, 0.3);
+}
+
+.commandes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.commandes .bouton {
+  margin: 0;
+}
+
+.direct {
+  color: var(--critique);
+  font-size: 0.75rem;
+}
+
+.video-figee {
+  filter: grayscale(1);
+  opacity: 0.6;
+}
+
+/* Images de référence (ADMIN) */
+.formulaire {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.formulaire select,
+.formulaire input {
+  padding: 6px;
+  border-radius: 6px;
+  border: 1px solid var(--bordure);
+  background: var(--fond-page);
+  color: var(--texte);
+}
+
+.vignettes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.vignettes figure {
+  margin: 0;
+}
+
+.vignettes img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.vignettes .inactive {
+  opacity: 0.4;
+}
