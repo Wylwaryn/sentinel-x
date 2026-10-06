@@ -385,6 +385,16 @@ Le dashboard (Caddy :443) appartient aux collègues.
 
 **Vision : messages et anti-répétition (6 oct., soir)**. Messages lisibles (« Présence : personne non identifiée (perimetre), confirmée par le PIR »). Anti-répétition **par personne** et non plus par piste (le suivi renumérote une personne immobile), avec un délai par type (`fusion.type_cooldown_s` : présence et rôdeur 60 s, approche 30 s, intrusion 20 s). Le score de reconnaissance s'affiche à côté de « inconnu » pour régler le seuil. 30 tests.
 
+**→ Dashboard : images de référence accessibles SEULEMENT depuis le PC hôte (demandé par l'utilisateur, 6 oct.)**
+Les photos de visages sont des données biométriques : la section « Images de référence » (liste, envoi, photo par la caméra, activation, fichiers) ne doit fonctionner **que sur le PC hôte**, même pour un ADMIN.
+- **Mesure faite depuis Windows (journaux du dashboard, 14:29)** : le PC hôte arrive en **`192.168.137.1`** quand il ouvre `https://192.168.137.1`, et en **`10.0.2.2`** par `https://127.0.0.1`. Aucun appareil du Wi-Fi ne peut usurper ces deux adresses : `192.168.137.1` est l'adresse du PC lui-même, donc les réponses ne reviendraient pas à l'usurpateur.
+- **Côté API (c'est ce qui compte)** : variable `HOST_ONLY_IPS` (défaut `10.0.2.2,192.168.137.1`). Les routes `GET/POST /api/v1/images-reference`, `PATCH /api/v1/images-reference/{id}` et `GET /api/v1/images-reference/{id}/fichier` renvoient **403 « réservé au PC hôte »** pour un ADMIN dont l'IP réelle n'est pas dans la liste. À journaliser. `SERVICE_VISION` garde sa propre règle (`SERVICE_VISION_IPS`).
+- **Côté interface (confort)** : `GET /api/v1/auth/me` renvoie `poste_hote: true/false`. Section masquée, ou remplacée par « Disponible uniquement sur le PC hôte », quand c'est `false`.
+- Tests : depuis une autre IP, liste, envoi, fichier et activation donnent 403 ; un `X-Forwarded-For` forgé ne contourne rien ; depuis une IP autorisée, tout fonctionne.
+- `DASHBOARD_ORIGINS` : ajouter `https://127.0.0.1`, pour que le PC hôte puisse aussi utiliser le dashboard par cette adresse (sinon le contrôle d'`Origin` refuse les envois).
+
+**→ VM** : après la fusion, `HOST_ONLY_IPS` et `DASHBOARD_ORIGINS` dans `.env`/compose, redéploiement, tests, puis vérification depuis Windows (la session Windows testera les deux adresses du PC hôte et une adresse du Wi-Fi).
+
 ### Demandes à la session VM
 
 **→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :
