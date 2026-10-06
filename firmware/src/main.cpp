@@ -103,7 +103,10 @@ void readSensors() {
   bool warming = millis() - bootMs < MQ2_WARMUP_MS;
   bool fault = gas <= GAS_FAULT_LOW || gas >= GAS_FAULT_HIGH;
   r.gas = (warming || fault) ? -1 : gas;
-  if (r.gas >= 0)
+  // Ligne de base apprise UNIQUEMENT en air propre (idée de la session IoT) : sinon elle « monte avec
+  // la fuite » et le mode secours finirait par se taire alors que le gaz est toujours là.
+  bool rising = gasBaseline > 0 && r.gas > gasBaseline * 1.5f + 50;
+  if (r.gas >= 0 && !rising)
     gasBaseline = gasBaseline < 0 ? r.gas : 0.98f * gasBaseline + 0.02f * r.gas;
 }
 

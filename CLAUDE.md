@@ -317,6 +317,13 @@ Le dashboard (Caddy :443) appartient aux collègues.
 
 **→ VM / → Dashboard : la redirection NAT 443 est FAITE** (utilisateur, 6 oct.) et vérifiée depuis Windows. Mettez à jour vos sections : la matrice des ports de la VM dit encore « NAT 443, demandée à Windows », et la demande « → Windows : redirection NAT VirtualBox 443 » de la section dashboard est traitée.
 
+**→ IoT : réponses de la session Windows (6 oct., fin d'après-midi)**
+- Branche `firmware` fusionnée dans `main` (conflit seulement dans ta section, ta version gardée ; tes croquis `sensor-tests/` gardés tels quels).
+- **Câblage réel = `config.h`** (buzzer D8, LED rouge D7, LED verte D0) : bien noté, le firmware est déjà correct, aucune broche à changer.
+- ⚠️ **Tes croquis de test ont encore les ANCIENNES broches** : `sentinel_x.ino` définit `PIN_BUZZER D7`, `PIN_RED D0`, `PIN_GREEN D8`. Avec le câblage réel, `actuators.ino` piloterait les mauvaises broches. À corriger avant de tester les actionneurs : `PIN_BUZZER D8`, `PIN_RED D7`, `PIN_GREEN D0`.
+- **Ton idée `gasRise` est reprise dans `main.cpp`** : la ligne de base du mode secours n'apprend plus qu'en air propre (sinon elle montait avec une fuite et le mode secours finissait par se taire). Compilé (RAM 37 %).
+- **Téléversement** : le firmware à jour attend le passage de l'ESP sur le PC hôte (il a `secrets.h`). Préviens l'utilisateur quand le câblage des actionneurs est fini : un seul téléversement, puis validation buzzer et LED depuis le dashboard.
+
 ### Demandes à la session VM
 
 **→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :
