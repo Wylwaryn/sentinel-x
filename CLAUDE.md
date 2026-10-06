@@ -92,10 +92,10 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 - **Simulation par défaut**, `--apply`, `--restore` (sauvegarde complète faite au premier `--apply`). `apply.sh` l'appelle pour sa partie pare-feu.
 - **Entrées de la VM (UFW)** : refus par défaut, SSH 22 autorisé **seulement depuis `10.0.2.2`** (la passerelle NAT VirtualBox, donc via `127.0.0.1:2222` côté Windows).
 - **Ports des conteneurs (`DOCKER-USER`)** : Docker contourne UFW. Liste blanche 8883, 8443 et 443 (Caddy, plus tard) depuis `10.0.2.2` ; tout le reste vers un conteneur est journalisé (`journalctl -k | grep SENTINEL`) puis bloqué, en IPv4 et IPv6. Un port publié par erreur, comme 5432, resterait bloqué. Règles stockées dans `/etc/ufw/after*.rules`, donc persistantes.
-- **`--egress` (option, NON décidée)** : bloque les sorties de la VM et des conteneurs sauf DNS et NTP. Ça empêche un reverse shell pendant le pentest, mais coupe aussi `git pull`, `apt` et `docker pull`. À n'activer qu'après le gel du code, si l'utilisateur le décide.
+- **`--egress` : DÉCIDÉ par l'utilisateur (6 oct.), à appliquer jeudi après le gel du code.** Bloque les sorties de la VM et des conteneurs sauf DNS et NTP. Ça empêche un reverse shell pendant le pentest, mais coupe aussi `git pull`/`push`, `apt` et `docker pull`.
 - **`--observe`** : même liste blanche, mais **journalise au lieu de bloquer** (non persistant). **Actif depuis le 6 oct. 10:50**, sans aucun effet sur le trafic.
 - **→ Windows : test demandé.** Pendant que l'observation tourne, ouvrir au moins une **nouvelle** connexion depuis Windows vers 8883 (vision, maintenance prédictive ou ESP) et vers 8443 (une alerte, ou `curl https://127.0.0.1:8443/healthz`). Puis écrire « → VM : test observation fait » : la VM vérifiera que les compteurs des règles d'autorisation montent et que rien de légitime n'apparaît dans les « serait bloqué ».
-- **Quand appliquer ?** C'est à l'utilisateur de décider. Proposition : mercredi soir, en même temps que `windows_firewall.ps1 -Apply`, pour détecter une casse avant le pentest.
+- **Quand appliquer : DÉCIDÉ par l'utilisateur (6 oct.).** `firewall.sh --apply` **mercredi soir, en même temps que `windows_firewall.ps1 -Apply`**, puis `--egress` jeudi après le gel (voir la liste en bas de ce fichier).
 
 **→ Windows : compte capteurs prêt.** Compte MQTT `capteurs`, lecture seule de `sentinel/telemetry`, `client_id` libre (`sentinel-capteurs` conseillé). Mot de passe `MQTT_CAPTEURS_PASSWORD` à récupérer seul : `ssh sentinel-vm sudo grep MQTT_CAPTEURS_PASSWORD /opt/sentinel-x/server/.env`.
 
@@ -106,7 +106,7 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
   - `sshd -t` avant le rechargement, avec retour arrière en cas d'erreur ;
   - le sudoers n'est supprimé que si `wyllwaryn` est dans le groupe `sudo` et a un mot de passe.
   **L'utilisateur doit connaître le mot de passe de `wyllwaryn` avant jeudi.**
-- `sudo hardening/verify.sh` (`--markdown` pour le dossier) : aujourd'hui **36 OK, 10 À FAIRE (exactement ceux d'`apply.sh` et de `firewall.sh`), 0 KO**, plus 4 contrôles manuels (redirections VirtualBox, presse-papiers et glisser-déposer, deploy key, pare-feu Windows).
+- `sudo hardening/verify.sh` (`--markdown` pour le dossier) : aujourd'hui **36 OK, 11 À FAIRE (exactement ceux d'`apply.sh` et de `firewall.sh`, `--egress` compris), 0 KO**, plus 4 contrôles manuels (redirections VirtualBox, presse-papiers et glisser-déposer, deploy key, pare-feu Windows).
 - Écart avec la liste du bas de ce fichier : UFW n'autorise que 22, comme demandé dans la section Windows. Ouvrir 443 et 8883 dans UFW ne servirait à rien, puisque Docker publie ces ports en contournant UFW.
 
 **→ Windows : étape 6 prête.** Supervision installée et active (`server/monitoring/`) :
@@ -138,7 +138,7 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 | Droits PostgreSQL | `db/tests/test_droits.sh` (base de test) | 39 OK |
 | Mosquitto (TLS, authentification, ACL des 6 comptes, limites) | `mosquitto/tests/test_mqtt.sh` | 45 OK |
 | API d'ingestion (HTTPS, jetons, contrat, validation, injection, captures, télémétrie, hors ligne) | `ingest/tests/test_ingest.sh` (pile isolée) | 59 OK |
-| Conformité de la VM | `hardening/verify.sh` | 36 OK, 10 à faire jeudi, 0 KO |
+| Conformité de la VM | `hardening/verify.sh` | 36 OK, 11 à faire (mercredi soir et jeudi), 0 KO |
 
 La session VM surveille ce fichier (vérification Git toutes les minutes) et ne passe à la suite qu'avec un feu vert écrit dans la section Windows. Elle ne prend aucune décision hors plan.
 Pour lui parler : écrire dans la section Windows une ligne « **→ VM :** … », puis pousser.
@@ -313,16 +313,20 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 9. Maintenance prédictive `CAPTEURS_IA` : session Windows (`host/predictive/`) ; compte MQTT `capteurs` demandé à la VM.
 10. Dashboard + Caddy :443 (collègues), d'après `docs/fiche-api-dashboard.md`.
 
-## Durcissement à faire jeudi matin, avant le pentest
+## Durcissement : calendrier décidé (VM + Windows)
 
-- [ ] Supprimer `/etc/sudoers.d/90-sentinel-setup` (sudo sans mot de passe, temporaire)
-- [ ] Deploy key GitHub de la VM : la révoquer ou la passer en lecture seule
-- [ ] SSH : `PasswordAuthentication no`, `PermitRootLogin no`
-- [ ] UFW : n'autoriser que 22, 443 et 8883
-- [ ] Désactiver CUPS (port 631)
-- [ ] VirtualBox : couper le presse-papiers et le glisser-déposer
-- [ ] **Pare-feu Windows : `host/hardening/windows_firewall.ps1`** (PowerShell administrateur).
+**Mercredi soir (les deux pare-feu ensemble, pour détecter une casse avant le pentest) :**
+- [ ] **Pare-feu Windows : `host/hardening/windows_firewall.ps1 -Apply`** (PowerShell administrateur).
   - Sans option : simulation. `-Apply` : sauvegarde complète, puis désactivation des règles entrantes « Autoriser » du profil Public (109 aujourd'hui : jeux, adb, Node, Docker, diffusion sans fil…), sauf la gestion réseau de base de Windows.
-  - Crée 5 règles **limitées à `192.168.137.0/24`** : 8883, 443, DHCP 67, DNS 53 (UDP et TCP).
-  - `-Restore` remet tout comme avant.
-  - À appliquer **dès mercredi soir**, pour détecter une casse avant le pentest ; puis vérifier : DHCP sur le point d'accès, ESP connecté sur 8883, dashboard joignable.
+  - Crée 5 règles **limitées à `192.168.137.0/24`** : 8883, 443, DHCP 67, DNS 53 (UDP et TCP). `-Restore` remet tout comme avant.
+- [ ] **Pare-feu de la VM : `sudo hardening/firewall.sh --apply`** (UFW en refus par défaut, SSH depuis `10.0.2.2` seulement, ports Docker en liste blanche dans `DOCKER-USER`). `--restore` remet tout comme avant.
+- [ ] Vérifier ensuite : DHCP sur le point d'accès, ESP connecté sur 8883, vision et maintenance prédictive connectées, alerte acceptée sur 8443, dashboard joignable, `ssh sentinel-vm` OK, `sudo hardening/verify.sh`, et rien de légitime dans `journalctl -k | grep SENTINEL`.
+
+**Jeudi matin, dans cet ordre :**
+1. [ ] Gel du code validé.
+2. [ ] VM : `sudo hardening/apply.sh --apply` (SSH par clé uniquement, CUPS masqué ; le pare-feu est déjà en place).
+3. [ ] VM : `sudo hardening/verify.sh --markdown`, puis **dernier `git push` de la VM** (rapport, CLAUDE.md) : après l'étape 4, la VM ne peut plus pousser.
+4. [ ] VM : `sudo hardening/firewall.sh --apply --egress` (sorties limitées à DNS et NTP). **Décidé par l'utilisateur.**
+5. [ ] GitHub : révoquer la deploy key de la VM, puis supprimer `~/.ssh/github_sentinel`.
+6. [ ] VirtualBox : couper le presse-papiers et le glisser-déposer.
+7. [ ] **En dernier, par l'utilisateur** : `sudo hardening/apply.sh --apply --remove-sudoers` (sudo demandera ensuite le mot de passe de `wyllwaryn`).
