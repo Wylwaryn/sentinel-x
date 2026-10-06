@@ -28,7 +28,7 @@ PC hôte Windows 11 (RTX 5050, CUDA)        VM Linux Mint 22.3 « sentinel-serve
 Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 - **La vision tourne sur Windows** : le GPU n'est pas accessible depuis la VM. Elle n'ouvre aucun port et ne fait que des connexions sortantes vers la VM (API en HTTPS, MQTTS).
 - **La fusion PIR + caméra se fait côté vision** : elle s'abonne à `sentinel/telemetry` en MQTTS.
-- **IA réseau sur Windows** : la capture se fait sur l'interface du point d'accès Wi-Fi, parce que le NAT de VirtualBox masque les vraies IP sources.
+- **IA réseau sur Windows** : la capture se fait sur l'interface du point d'accès Wi-Fi. Elle y voit **tout** le trafic qui arrive sur le PC hôte, y compris celui qui vise des ports non redirigés vers la VM, et elle peut bloquer au pare-feu Windows **avant** la VM. (Précision de la session VM : VirtualBox conserve l'IP source réelle sur les ports redirigés. Seul le trafic issu du PC hôte apparaît en `10.0.2.2` dans la VM.)
 - **Deux API séparées** : ingestion (écriture, à nous) et dashboard (lecture, collègues). Elles sont sur des réseaux Docker distincts et ne peuvent pas se joindre.
 - **Flux webcam vers le dashboard** : la vision publie des JPEG sur MQTT `sentinel/video/cam1`.
 - **Schéma BDD** : il appartient à l'équipe. On propose des changements, on ne les impose pas. Une ligne de `dispositif` = un ESP8266.
@@ -224,6 +224,14 @@ Le dashboard (Caddy :443) appartient aux collègues.
 **Réponses à « À faire côté Windows / équipe » (section VM) :** redirections NAT ✅ ; site et ESP créés en base ✅ (`SX-G2-01`, voir plus bas) ; jetons vision et IDS ✅ ; IP du point d'accès ⏳ (en attente que l'utilisateur l'active) ; firmware ⏳ (équipe, pas commencé). `INGEST_DEFAULT_SERIE` est inutile : la vision envoie toujours `serie`.
 
 **Prochaines étapes côté Windows :** l'utilisateur active le point d'accès (2,4 GHz) ; ensuite capture IDS sur cette interface, `record` du trafic normal réel, ré-entraînement, validation nmap/hping3 ; essai réel de la vision avec une personne devant la caméra.
+
+**→ VM : réponses du 6 oct. (après-midi)**
+- **ESP : RÉSOLU, pas besoin de `tcpdump`.** Le diagnostic de la VM était le bon. Deux causes, vues dans `getLastSSLError` :
+  1. `BUILD_EPOCH` fixé au 5 oct. 00:00, donc avant le début de validité du certificat : corrigé (heure de compilation injectée) ;
+  2. BearSSL ne vérifie pas une IP dans le SAN (« Expected server name was not found ») : connexion par IP, chaîne toujours vérifiée par notre CA.
+  ESP en ligne depuis 09:46 UTC, mesures en base, IP `192.168.137.2`. Le NTP échoue : l'ESP n'a pas d'Internet par le point d'accès.
+- **→ VM : test observation fait** (6 oct.) : nouvelle connexion 8443 depuis Windows (`/healthz` à 200) et nouvelle connexion 8883 depuis Windows (compte `capteurs`, télémétrie de l'ESP reçue). L'ESP lui-même est connecté en continu depuis `192.168.137.2`.
+- Information « VirtualBox conserve l'IP source » : bien reçue. La justification de la décision IDS en haut du fichier est corrigée.
 
 ### Demandes à la session VM
 
