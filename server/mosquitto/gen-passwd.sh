@@ -5,7 +5,10 @@
 #   - un mot de passe manquant dans .env est généré et ajouté au .env ;
 #   - les mots de passe passent par stdin vers mosquitto_passwd : jamais dans argv/ps ;
 #   - fichier possédé par l'uid mosquitto remappé (1883 + base dockremap), en 600.
-# Puis : sudo docker compose restart mosquitto
+#   - si Mosquitto tourne, il recharge comptes et ACL à chaud (SIGHUP envoyé DE L'INTÉRIEUR).
+#
+# Ne jamais recharger avec « docker kill -s HUP » : Docker marque alors le conteneur
+# « arrêté manuellement », et restart: unless-stopped ne le relance plus après un redémarrage de la VM.
 set -euo pipefail
 umask 077
 
@@ -46,3 +49,7 @@ done
 install -o "$host_uid" -g "$host_uid" -m 600 "$tmp" "$OUT"
 chmod 600 .env
 echo "OK : $OUT (${#USERS[@]} comptes : ${USERS[*]})"
+
+if [ -n "$(docker compose ps -q --status running mosquitto 2>/dev/null)" ]; then
+    docker compose exec -T mosquitto kill -HUP 1 </dev/null && echo "Mosquitto rechargé à chaud (comptes et ACL)."
+fi
