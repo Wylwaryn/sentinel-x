@@ -433,26 +433,19 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 ## IoT et électronique : où en est la session IoT (mis à jour par elle)
 
 **Fait :**
-- Tests unitaires des capteurs (PIR, MQ-2, DHT22, OLED) dans `firmware/sensor-tests/`. Ce sont des croquis Arduino IDE **de test seulement** : ils ne doivent jamais être téléversés sur l'ESP en service (voir la règle firmware plus haut).
-- Câblage aligné sur `firmware/include/config.h` (DHT22 D5, PIR D6, LED rouge D7, LED verte D0, buzzer D8, MQ-2 A0 via pont diviseur, OLED D2/D1, PIR et MQ-2 sur VU).
+- Tests unitaires des capteurs (PIR, MQ-2, DHT22, OLED) et des actionneurs (buzzer, LED rouge/verte) dans `firmware/sensor-tests/`. Croquis Arduino IDE **de test seulement** : ils ne doivent jamais être téléversés sur l'ESP en service (voir la règle firmware plus haut). Le test des actionneurs accepte les mêmes commandes JSON que le dashboard, saisies dans le moniteur série.
+- Câblage aligné sur `firmware/include/config.h` : DHT22 D5, PIR D6, LED rouge D7, LED verte D0, buzzer D8, MQ-2 A0 via pont diviseur, OLED D2/D1, PIR et MQ-2 sur VU.
+- Les 3 propositions d'amélioration de `main.cpp` (PIR ignoré à la calibration, gaz `null` en préchauffe ou en défaut, LED automatique après commande) ont été appliquées par la session Windows (commit `feat(firmware): PIR ignoré à la calibration…`).
+- Test des actionneurs (`actuators.ino`, mêmes commandes JSON que le dashboard, saisies dans le moniteur série) ajouté dans `sensor-tests/` et compilé (Verify).
+- Buzzer vérifié seul (alimenté en 3 V) : il fonctionne.
 
-**Pas encore fait :**
-- Pas de code d'actionneurs ajouté dans `sensor-tests/` : buzzer et LED sont déjà gérés par `main.cpp`.
-- Câblage et test des actionneurs (LED, buzzer) sur le boîtier : à faire, puis à valider avec une commande `sentinel/cmd/SX-G2-01`.
+**En cours / à faire :**
+- Buzzer câblé sur D8 : validation à faire depuis le dashboard (commande `sentinel/cmd/SX-G2-01`, retour sur la ligne `Cmd` de l'OLED).
+- Câblage des LED rouge (D7) et verte (D0) : à faire, puis même validation.
+- Alimentation de production (bloc 7,5 V + convertisseur DC-DC 7,5 V vers 5 V pour le PIR et le MQ-2) : à câbler et à mesurer au multimètre avant de brancher les capteurs. Jamais en même temps que l'USB.
 - Schéma de câblage et documentation du firmware (livrables du dossier) : à écrire.
 
-**→ Windows : propositions d'amélioration pour `firmware/src/main.cpp`** (à toi de décider et de téléverser, je ne touche pas au fichier) :
-
-1. **PIR au démarrage.** Le PIR n'est pas ignoré pendant la première minute après la mise sous tension. Pendant cette calibration, le HC-SR501 peut déclencher de faux mouvements. Ces faux `pir: true` sont envoyés au serveur et lus par la vision pour la fusion, ce qui peut déclencher une fausse alerte `FUSION` au démarrage du boîtier.
-   *Proposition :* forcer `r.pir = false` (et ne pas publier de changement) tant que `millis() - bootMs < 60000`.
-
-2. **Gaz pendant le préchauffage et valeurs bloquées.** Le MQ-2 est envoyé comme une vraie valeur dès le démarrage, alors que l'OLED affiche « prechauf. ». Une valeur bloquée à 0 ou à 1023 (fil mal branché) est aussi envoyée comme du vrai gaz au lieu de `null`. La maintenance prédictive peut alors la prendre pour une fuite au lieu d'un capteur défaillant.
-   *Proposition :* envoyer `"gaz_brut": null` pendant `MQ2_WARMUP_MS`, et quand la valeur est ≤ 2 ou ≥ 1021. Le modèle `Telemetry` accepte `null` et la colonne `mesure.gaz_brut` n'a pas de `NOT NULL`, mais à vérifier avec un message de test.
-
-3. **LED verte pilotée par le dashboard.** Dès que le dashboard envoie une commande sur la LED verte, le statut automatique « connecté » ne la contrôle plus : la ligne `if (lastCmd.indexOf("vert") < 0)` reste désactivée tant qu'aucune commande non verte n'arrive. Si le dashboard éteint la LED verte puis que la liaison est perdue, la LED ne clignote pas pour signaler la déconnexion.
-   *Proposition :* une variable séparée (par exemple `bool greenManual`) activée uniquement par les commandes vertes, avec un délai après lequel la LED repasse en mode automatique. Même principe pour la LED rouge en mode secours (`indexOf("rouge")`).
-
-Impact global : faible, la démo fonctionne sans ces changements. Les points 1 et 2 évitent de fausses alertes au démarrage devant le jury.
+**→ Windows :** l'ESP physique est avec moi. Le firmware à jour (commit `feat(firmware)`) n'est sur le boîtier qu'après un téléversement depuis le PC hôte : dis-moi quand c'est fait. Je ne touche pas à `firmware/src/`.
 
 ## Rejoindre la coordination (sessions des collègues : dashboard, fablab, vidéo, dossier…)
 
