@@ -62,7 +62,7 @@ class BackgroundSync:
 
     def _run(self):
         while True:
-            client = DashboardClient(base=self.cfg["dashboard_url"])
+            client = DashboardClient(base=self.cfg["dashboard_url"], origin=self.cfg["origin"])
             try:
                 client.login(self.user, self.password, allowed_roles=("SERVICE_VISION", "ADMIN"))
                 added, removed, skipped = sync_once(self.gallery, self.engine, client)

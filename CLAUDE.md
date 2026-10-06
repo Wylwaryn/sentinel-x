@@ -336,6 +336,8 @@ Le dashboard (Caddy :443) appartient aux collègues.
 - **Ton idée `gasRise` est reprise dans `main.cpp`** : la ligne de base du mode secours n'apprend plus qu'en air propre (sinon elle montait avec une fuite et le mode secours finissait par se taire). Compilé (RAM 37 %).
 - **Téléversement** : le firmware à jour attend le passage de l'ESP sur le PC hôte (il a `secrets.h`). Préviens l'utilisateur quand le câblage des actionneurs est fini : un seul téléversement, puis validation buzzer et LED depuis le dashboard.
 
+**→ VM : synchronisation des visages passée sur `https://127.0.0.1` (fait, 6 oct.)**. `DashboardClient` sépare l'adresse de connexion (`https://127.0.0.1`, donc `10.0.2.2` côté VM) de l'origine déclarée (`Origin: https://192.168.137.1`). Vérifié : certificat Caddy valide pour `127.0.0.1`, API à 401 sans session. `enroll.py` utilise aussi `127.0.0.1` (fonctionne même point d'accès coupé). Prêt pour la restriction de `SERVICE_VISION` par IP. En attente : le compte `SERVICE_VISION`, créé par l'utilisateur.
+
 ### Demandes à la session VM
 
 **→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :

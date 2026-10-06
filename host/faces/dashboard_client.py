@@ -8,7 +8,11 @@ from pathlib import Path
 import requests
 
 HOST = Path(__file__).resolve().parent.parent
-DEFAULT_BASE = "https://192.168.137.1"
+# Le PC hôte joint Caddy par 127.0.0.1 (NAT VirtualBox) : la VM le voit alors en 10.0.2.2, seule adresse
+# autorisée pour le compte SERVICE_VISION. Le certificat de Caddy contient IP:127.0.0.1.
+DEFAULT_BASE = "https://127.0.0.1"
+# Origine déclarée : celle du dashboard, contrôlée par l'API (DASHBOARD_ORIGINS)
+DEFAULT_ORIGIN = "https://192.168.137.1"
 DEFAULT_CA = HOST / "certs" / "ca.crt"
 
 
@@ -17,12 +21,12 @@ class DashboardError(RuntimeError):
 
 
 class DashboardClient:
-    def __init__(self, base=DEFAULT_BASE, ca=DEFAULT_CA, timeout=10):
+    def __init__(self, base=DEFAULT_BASE, ca=DEFAULT_CA, timeout=10, origin=DEFAULT_ORIGIN):
         self.base = base.rstrip("/")
         self.timeout = timeout
         self.s = requests.Session()
         self.s.verify = str(ca)
-        self.s.headers["Origin"] = self.base
+        self.s.headers["Origin"] = origin
         self.user = None
 
     def _check(self, r):
