@@ -25,7 +25,8 @@
 		X-Content-Type-Options nosniff
 		X-Frame-Options DENY
 		Referrer-Policy no-referrer
-		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		# Caméra autorisée pour cette page seulement (photos de référence, ADMIN) ; micro et position interdits.
+		Permissions-Policy "camera=(self), microphone=(), geolocation=()"
 		-Server
 	}
 

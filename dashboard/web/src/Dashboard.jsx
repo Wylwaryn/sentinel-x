@@ -9,6 +9,7 @@ import Camera from "./Camera.jsx";
 import Commandes from "./Commandes.jsx";
 import Journal from "./Journal.jsx";
 import ImagesReference from "./ImagesReference.jsx";
+import Utilisateurs from "./Utilisateurs.jsx";
 
 const HORS_LIGNE_MS = 30000;   // même seuil que v_dispositif_etat et l'API d'ingestion
 const RECONNEXION_MS = 3000;   // délai avant de retenter le WebSocket
@@ -47,6 +48,9 @@ export default function Dashboard({ utilisateur, onDeconnexion, onSessionExpiree
   const [imageRecue, setImageRecue] = useState(0);
   const [journal, setJournal] = useState([]);
   const [maintenant, setMaintenant] = useState(Date.now());
+  // ADMIN : compte à photographier (après création ou bouton « Photos ») et rechargement des listes
+  const [aPhotographier, setAPhotographier] = useState(null);
+  const [versionComptes, setVersionComptes] = useState(0);
 
   // Les gestionnaires du WebSocket lisent la sélection courante via des refs (pas de reconnexion à chaque clic)
   const selectionRef = useRef(selection);
@@ -294,7 +298,13 @@ export default function Dashboard({ utilisateur, onDeconnexion, onSessionExpiree
             </div>
           </div>
 
-          {estAdmin && <ImagesReference />}
+          {estAdmin && (
+            <>
+              <Utilisateurs moi={utilisateur} version={versionComptes}
+                onCree={(id) => { setVersionComptes((v) => v + 1); setAPhotographier(id); }} />
+              <ImagesReference choisi={aPhotographier} version={versionComptes} />
+            </>
+          )}
         </main>
       </div>
     </div>

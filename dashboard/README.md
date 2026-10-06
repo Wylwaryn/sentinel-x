@@ -23,7 +23,7 @@ sudo pki/pki.sh server caddy 10003 DNS:sentinel-server,DNS:localhost,IP:127.0.0.
 sudo docker compose -f docker-compose.yml -f ../dashboard/docker-compose.yml up -d --build dashboard caddy
 # 4. Comptes (mot de passe demandé au clavier, haché en Argon2id)
 sudo ../dashboard/api/add-user.sh admin@sentinel.local "Administrateur" ADMIN
-# 5. Tests sur une pile isolée (78 tests : Caddy, API, temps réel, rôles, MQTT, injections)
+# 5. Tests sur une pile isolée (105 tests : Caddy, API, temps réel, rôles, comptes, MQTT, injections)
 sudo ../dashboard/api/tests/test_dashboard.sh
 ```
 
@@ -40,10 +40,16 @@ Dashboard : `https://192.168.137.1` (le navigateur doit faire confiance à `cert
 | GET | `/alertes` (ouvertes) ou `/alertes?toutes=true` ; `/alertes/{id}/capture` (JPEG) | tous |
 | POST | `/alertes/{id}/acquitter`, `/alertes/{id}/resoudre` | OPERATEUR, ADMIN |
 | POST | `/dispositifs/{id}/commandes` `{"commande": {"actionneur":"buzzer","etat":"on","duree_ms":3000}}` | OPERATEUR, ADMIN |
-| GET / POST / PATCH | `/utilisateurs`, `/images-reference` (corps = JPEG brut), `/images-reference/{id}` `{"active":false}`, `/images-reference/{id}/fichier` | ADMIN |
+| GET | `/utilisateurs` | ADMIN |
+| POST | `/utilisateurs` `{"nom","email","role","mot_de_passe","mot_de_passe_admin"}` (mot de passe de l'ADMIN ressaisi) | ADMIN |
+| PATCH | `/utilisateurs/{id}` `{"actif":false}` (pas sur son propre compte) | ADMIN |
+| POST / PATCH | `/images-reference?id_utilisateur=N` (corps = JPEG brut), `/images-reference/{id}` `{"active":false}` | ADMIN |
+| GET | `/images-reference` (avec `utilisateur_role`, `utilisateur_actif`), `/images-reference/{id}/fichier` | ADMIN, SERVICE_VISION |
 
 WebSocket `/ws` (même cookie) : `{"type":"mesure","data":{...}}`, `{"type":"alerte","data":{...}}`, `{"type":"resync"}`, et les images webcam en binaire (JPEG).
-Code de fermeture 4401 = session absente ou expirée, 4403 = origine refusée.
+Code de fermeture 4401 = session absente ou expirée, 4403 = origine refusée ou compte de service.
+
+`SERVICE_VISION` (synchronisation des visages, créé uniquement au terminal avec `add-user.sh`) : refusé partout (403) sauf les deux `GET` d'images.
 
 Les instants sont envoyés en UTC (`"instant": "2026-10-07T14:02:11.482913Z"`) ; le navigateur affiche l'heure de Paris.
 

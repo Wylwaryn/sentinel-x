@@ -1,8 +1,11 @@
 """API dashboard Sentinel-X : lecture de la supervision physique, actions des opérateurs, temps réel.
 
 Derrière Caddy (seul point d'entrée, HTTPS/WSS :443) ; aucun port publié.
-  - REST  /api/v1/...   dispositifs, mesures, alertes, commandes, images de référence
+  - REST  /api/v1/...   dispositifs, mesures, alertes, commandes, utilisateurs, images de référence
   - WS    /ws           mesures et alertes (LISTEN/NOTIFY), flux webcam (MQTT)
+
+Le compte de service SERVICE_VISION (synchronisation des visages) n'a droit qu'à la lecture des images
+de référence : toute autre route le refuse (403), y compris le WebSocket.
 """
 import asyncio
 import logging
@@ -16,13 +19,14 @@ from typing import Annotated, Literal
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
+import psycopg
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import config
 from .db import PERIODES, Database
 from .realtime import Client, Hub, MqttLink, PgListener
-from .security import (COOKIE, PEUT_ADMINISTRER, PEUT_AGIR, LoginLimiter, Tokens,
-                       verify_password)
+from .security import (COOKIE, PEUT_ADMINISTRER, PEUT_AGIR, PEUT_LIRE, PEUT_LIRE_IMAGES, ROLES, LoginLimiter,
+                       Tokens, hash_password, verify_password)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s : %(message)s")
 log = logging.getLogger("dashboard")
@@ -37,6 +41,7 @@ limiter = LoginLimiter()
 
 SERIE_OK = re.compile(r"^[A-Za-z0-9_-]{1,64}$")            # jamais de + # / dans un topic MQTT
 FICHIER_OK = re.compile(r"^(captures|references)/[0-9a-f]{32}\.jpg$")
+EMAIL_OK = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 @asynccontextmanager
@@ -94,11 +99,25 @@ async def _utilisateur(token: str | None) -> tuple[Utilisateur, int] | None:
     return Utilisateur(id_utilisateur=row["id_utilisateur"], nom=row["nom"], role=row["role"]), lu[1]
 
 
-async def connecte(request: Request) -> Utilisateur:
+async def session(request: Request) -> Utilisateur:
+    """N'importe quel compte actif, y compris le compte de service : réservé à /auth/me."""
     trouve = await _utilisateur(request.cookies.get(COOKIE))
     if trouve is None:
         raise HTTPException(401, "non connecté")
     return trouve[0]
+
+
+async def connecte(u: Annotated[Utilisateur, Depends(session)]) -> Utilisateur:
+    """Une personne (LECTEUR, OPERATEUR, ADMIN) : base de toutes les routes, refus par défaut du service."""
+    if u.role not in PEUT_LIRE:
+        raise HTTPException(403, "compte de service : accès limité aux images de référence")
+    return u
+
+
+async def lecteur_images(u: Annotated[Utilisateur, Depends(session)]) -> Utilisateur:
+    if u.role not in PEUT_LIRE_IMAGES:
+        raise HTTPException(403, "réservé aux administrateurs")
+    return u
 
 
 async def operateur(u: Annotated[Utilisateur, Depends(connecte)]) -> Utilisateur:
@@ -113,7 +132,9 @@ async def admin(u: Annotated[Utilisateur, Depends(connecte)]) -> Utilisateur:
     return u
 
 
+Session = Annotated[Utilisateur, Depends(session)]
 Connecte = Annotated[Utilisateur, Depends(connecte)]
+LecteurImages = Annotated[Utilisateur, Depends(lecteur_images)]
 Operateur = Annotated[Utilisateur, Depends(operateur)]
 Admin = Annotated[Utilisateur, Depends(admin)]
 
@@ -169,7 +190,7 @@ async def logout():
 
 
 @app.get("/api/v1/auth/me")
-async def moi(u: Connecte):
+async def moi(u: Session):
     return {"utilisateur": u.model_dump()}
 
 
@@ -271,8 +292,61 @@ async def utilisateurs(_u: Admin):
     return await db.utilisateurs()
 
 
+class CompteIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    nom: str = Field(min_length=1, max_length=100)
+    email: str = Field(min_length=3, max_length=255)
+    role: Literal[ROLES]   # jamais SERVICE_VISION depuis l'interface (la base le refuse aussi)
+    mot_de_passe: str = Field(min_length=12, max_length=256)
+    mot_de_passe_admin: str = Field(min_length=1, max_length=256)
+
+
+@app.post("/api/v1/utilisateurs", status_code=201)
+async def creer_utilisateur(body: CompteIn, request: Request, u: Admin):
+    """Création d'un compte par un ADMIN, qui doit ressaisir SON mot de passe : un cookie volé ne suffit pas."""
+    ip = request.client.host if request.client else "?"
+    cles = (f"ip:{ip}", f"admin:{u.id_utilisateur}")
+    if limiter.bloque(*cles):
+        raise HTTPException(429, "trop de tentatives, réessayez dans quelques minutes")
+    if not await asyncio.to_thread(verify_password, await db.hash_utilisateur(u.id_utilisateur), body.mot_de_passe_admin):
+        limiter.echec(*cles)
+        log.warning("création de compte refusée : mot de passe de l'ADMIN %s incorrect (%s)", u.id_utilisateur, ip)
+        raise HTTPException(403, "mot de passe administrateur incorrect")
+    limiter.succes(*cles)
+    if not EMAIL_OK.match(body.email.strip()):
+        raise HTTPException(422, "email invalide")
+    nom = body.nom.strip()
+    if not nom:
+        raise HTTPException(422, "nom vide")
+
+    hash_ = await asyncio.to_thread(hash_password, body.mot_de_passe)
+    try:
+        id_nouveau = await db.creer_utilisateur(nom, body.email, body.role, hash_)
+    except psycopg.errors.UniqueViolation:
+        raise HTTPException(409, "email déjà utilisé")
+    if id_nouveau is None:
+        raise HTTPException(422, "rôle inconnu")
+    log.info("compte %s (%s) créé par l'ADMIN %s", id_nouveau, body.role, u.id_utilisateur)
+    return {"id_utilisateur": id_nouveau}
+
+
+class ActifIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actif: bool
+
+
+@app.patch("/api/v1/utilisateurs/{id_utilisateur}")
+async def activer_utilisateur(id_utilisateur: int, body: ActifIn, u: Admin):
+    if id_utilisateur == u.id_utilisateur and not body.actif:
+        raise HTTPException(409, "un administrateur ne peut pas désactiver son propre compte")
+    if not await db.activer_utilisateur(id_utilisateur, body.actif):
+        raise HTTPException(404, "utilisateur inconnu")
+    log.info("compte %s actif=%s par l'ADMIN %s", id_utilisateur, body.actif, u.id_utilisateur)
+    return {"ok": True}
+
+
 @app.get("/api/v1/images-reference")
-async def images_reference(_u: Admin):
+async def images_reference(_u: LecteurImages):
     return await db.images_reference()
 
 
@@ -320,7 +394,7 @@ async def activer_image(id_image: int, body: ActiveIn, u: Admin):
 
 
 @app.get("/api/v1/images-reference/{id_image}/fichier")
-async def fichier_image(id_image: int, _u: Admin):
+async def fichier_image(id_image: int, _u: LecteurImages):
     return _fichier(await db.chemin_image(id_image))
 
 
@@ -334,9 +408,11 @@ async def websocket(ws: WebSocket):
     if trouve is None:
         # 4401 : le dashboard revient à l'écran de connexion.
         return await ws.close(code=4401)
+    utilisateur, expiration = trouve
+    if utilisateur.role not in PEUT_LIRE:
+        return await ws.close(code=4403)   # compte de service : pas de temps réel
     if hub.plein():
         return await ws.close(code=1013)
-    utilisateur, expiration = trouve
 
     client = Client(ws)
 
