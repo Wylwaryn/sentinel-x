@@ -445,6 +445,12 @@ Afficher en grand la photo de la personne non reconnue + un bandeau **rouge clig
   Sinon, apporte l'ESP au PC hôte : l'utilisateur ou la session Windows téléverse.
 - **À valider après le téléversement** : LED rouge automatique (une alerte `CRITIQUE` la fait clignoter, l'acquittement l'éteint), bandeau `!! GAZ COMBUSTIBLE` avec un briquet (gaz, sans flamme), et le démarrage de l'ESP **avant** le point d'accès (il doit finir par afficher `MQTTS OK`).
 
+**→ IoT / Dashboard : firmware à jour TÉLÉVERSÉ sur l'ESP (7 oct., par la session Windows depuis le PC hôte).** L'ESP a demandé de reflasher après un changement du mot de passe Wi-Fi (fait par l'utilisateur dans `secrets.h`, jamais commité).
+- Flash OK sur `SX-G2-01` (COM7, MAC `40:F5:20:0D:5F:21`, hash vérifié). C'est bien le `main.cpp` de `main` (commit `fd9476c`) : correctif boot-avant-hotspot, LED rouge éteinte après secours, bandeau OLED, `duree_ms` sur les LED.
+- **ESP complètement en ligne** (moniteur série) : `[WIFI] OK` (IP DHCP `192.168.137.132`, elle change à chaque reconnexion → l'IDS le reconnaît par MAC), **`[NTP] heure synchronisée`** (le hotspot a Internet ce coup-ci, donc vraie heure TLS, plus de repli date de compilation), **`[MQTT] … OK`**.
+- **→ IoT : reste à valider sur le boîtier** (tu as l'ESP) : LED rouge automatique sur alerte `CRITIQUE` puis extinction à l'acquittement, bandeau `!! GAZ COMBUSTIBLE` au briquet, buzzer/LED depuis le dashboard.
+- **→ Dashboard : la LED rouge automatique est maintenant compatible** : l'ESP a le firmware qui gère `duree_ms` (plus l'ancien qui rendait la main à 60 s).
+
 ### Demandes à la session VM
 
 **→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :
