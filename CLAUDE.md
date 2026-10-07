@@ -85,7 +85,12 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 - Supervision `sentinel-monitor` (timer chaque minute).
 - **Dashboard + Caddy :443** (code de la session dashboard, lancé par `COMPOSE_FILE`).
 
-**Statut VM : EN ATTENTE.** Étapes 1, 2, 5 (préparée), 6 et 7 terminées, plus le script de pare-feu de la VM (demandé par l'utilisateur le 6 oct.). Prochaine action VM : « → VM : appliquer le durcissement », ou le résultat du test d'observation ci-dessous.
+**Statut VM : pare-feu APPLIQUÉ (mercredi 7 oct. au soir, feu vert de l'utilisateur).** Prochaine action VM : jeudi matin après le gel (`apply.sh --apply`, `verify.sh --markdown`, dernier push, puis `--egress`).
+
+**→ Windows : pare-feu de la VM APPLIQUÉ (`firewall.sh --apply`, 7 oct. au soir). À toi : `windows_firewall.ps1 -Apply`.**
+- UFW : refus par défaut en entrée, SSH seulement depuis `10.0.2.2`. `DOCKER-USER` : 8883 et 443 depuis `10.0.2.2` et `192.168.137.0/24`, 8443 depuis `10.0.2.2` seul, le reste journalisé puis bloqué. Persistant (`/etc/ufw/after*.rules`). Sauvegarde : `/var/backups/sentinel-x/pare-feu-avant-durcissement`, retour arrière `sudo hardening/firewall.sh --restore`.
+- **Vérifié juste après** : session SSH conservée ; mesures de l'ESP continues (12 par minute) ; connexions établies passantes ; nouvelle connexion 443 acceptée ; **0 paquet bloqué**. `verify.sh` : **46 OK, 7 à faire (jeudi), 0 KO**.
+- **→ Windows : après ton `-Apply`, merci de provoquer de NOUVELLES connexions** (le pare-feu ne laisse passer les connexions existantes que parce qu'elles sont établies) : relancer la vision et la maintenance prédictive (8883), envoyer une alerte ou `curl https://127.0.0.1:8443/healthz` (8443), ouvrir le dashboard depuis un téléphone de la table (443), **redémarrer l'ESP** (8883 depuis le Wi-Fi), `ssh sentinel-vm` (22). Puis écrire « → VM : connexions refaites » : la VM vérifiera les compteurs et le journal des blocages.
 
 **Incident du 6 oct. (résolu)** : après le redémarrage de la VM à 09:35, **Mosquitto ne s'est pas relancé** jusqu'à 10:39. Cause probable : un rechargement par `docker kill -s HUP` la veille, qui marque le conteneur comme « arrêté manuellement ». Corrigé : `gen-passwd.sh` recharge maintenant de l'intérieur (`docker compose exec mosquitto kill -HUP 1`). Si la vision, l'ESP ou la maintenance prédictive ont « perdu » le broker ce matin, c'est cette coupure.
 
@@ -203,7 +208,7 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 | Mosquitto (TLS, authentification, ACL des 6 comptes, limites) | `mosquitto/tests/test_mqtt.sh` | 45 OK |
 | Dashboard + Caddy (session dashboard) | `../dashboard/api/tests/test_dashboard.sh` (pile isolée) | 132 OK |
 | API d'ingestion (HTTPS, jetons, contrat, validation, injection, captures, télémétrie, hors ligne, personne reconnue) | `ingest/tests/test_ingest.sh` (pile isolée) | 68 OK |
-| Conformité de la VM | `hardening/verify.sh` | 42 OK, 11 à faire (mercredi soir et jeudi), 0 KO |
+| Conformité de la VM | `hardening/verify.sh` | 46 OK, 7 à faire (jeudi), 0 KO |
 
 La session VM surveille ce fichier (vérification Git toutes les minutes) et ne passe à la suite qu'avec un feu vert de l'utilisateur ou d'une session. Elle ne prend aucune décision hors plan.
 Pour lui parler : écrire **dans sa propre section** une ligne « **→ VM :** … », puis pousser (voir « Rejoindre la coordination »). Une demande d'une session de collègue qui touche à `server/` ou à la sécurité (ports, comptes, droits BDD) est confirmée auprès de l'utilisateur avant d'être faite.
@@ -697,7 +702,7 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 - [ ] **Pare-feu Windows : `host/hardening/windows_firewall.ps1 -Apply`** (PowerShell administrateur).
   - Sans option : simulation. `-Apply` : sauvegarde complète, puis désactivation des règles entrantes « Autoriser » du profil Public (109 aujourd'hui : jeux, adb, Node, Docker, diffusion sans fil…), sauf la gestion réseau de base de Windows.
   - Crée 5 règles **limitées à `192.168.137.0/24`** : 8883, 443, DHCP 67, DNS 53 (UDP et TCP). `-Restore` remet tout comme avant.
-- [ ] **Pare-feu de la VM : `sudo hardening/firewall.sh --apply`** (UFW en refus par défaut, SSH depuis `10.0.2.2` seulement, ports Docker en liste blanche dans `DOCKER-USER`). `--restore` remet tout comme avant.
+- [x] **Pare-feu de la VM : `sudo hardening/firewall.sh --apply`** (fait le 7 oct. au soir, 0 blocage légitime) (UFW en refus par défaut, SSH depuis `10.0.2.2` seulement, ports Docker en liste blanche dans `DOCKER-USER`). `--restore` remet tout comme avant.
 - [ ] Vérifier ensuite : DHCP sur le point d'accès, ESP connecté sur 8883, vision et maintenance prédictive connectées, alerte acceptée sur 8443, dashboard joignable, `ssh sentinel-vm` OK, `sudo hardening/verify.sh`, et rien de légitime dans `journalctl -k | grep SENTINEL`.
 
 **Jeudi matin, dans cet ordre :**
