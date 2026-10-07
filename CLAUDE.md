@@ -472,6 +472,10 @@ Les photos de visages sont des données biométriques : la section « Images de 
 - Validé AVANT téléversement par son jumeau Python `host/predictive/edge.py` (même logique ligne pour ligne) : `python sentinel_predictive.py edge-eval` → **0 fausse alerte sur 1,6 h d'un jour jamais vu** (allumages à froid du MQ-2 compris), surchauffe / gaz / humidité haute détectés 12/12, type juste 46/47. 4 tests unitaires.
 - **À valider sur le boîtier après téléversement** : une source de chaleur douce près du DHT22 (sèche-cheveux à distance, jamais de flamme) → « !! SURCHAUFFE ~Xmin » à l'OLED ; puis PC débranché (mode secours) → buzzer + LED rouge.
 
+**→ Démarrage des services du PC hôte après un reboot (7 oct.).** Les services ne se relancent pas seuls. Après chaque redémarrage de Windows : double-cliquer **`host\start.bat`** (ou `host\start.ps1`). Il arrête les anciennes instances (deux process sur la même webcam = échec caméra), relance **vision + maintenance prédictive** en arrière-plan (journaux `host\logs\`), et affiche quelle caméra la vision a prise. `host\stop.bat` pour arrêter. L'IDS reste manuel (admin + Npcap).
+- **Caméra : la vision EXIGE maintenant « USB Camera » par son nom** (`camera.require_name`, défaut vrai) : si l'USB est absente/pas prête, elle **attend** au lieu de basculer sur la caméra intégrée du portable. La reconnaissance faciale et le verrou passent donc toujours par l'USB.
+- **La VM VirtualBox ne redémarre pas avec Windows** : la lancer (VirtualBox, ou `VBoxManage startvm "Sentinel-Server" --type headless`). La stack Docker remonte seule au boot de la VM.
+
 ### Demandes à la session VM
 
 **→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :
@@ -625,6 +629,7 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 - Ne jamais recharger un conteneur avec `docker kill -s <signal>` : Docker le marque « arrêté manuellement » et `restart: unless-stopped` ne le relance plus au démarrage. Utiliser `docker compose exec <service> kill -HUP 1`.
 - L'image postgres fait confiance aux connexions locales par défaut. D'où `POSTGRES_INITDB_ARGS=--auth-local=scram-sha-256 --auth-host=scram-sha-256`.
 - La RTX 5050 (Blackwell) exige PyTorch `cu128` ou plus.
+- **VM injoignable (SSH 2222 / ports 443-8443 acceptent le TCP mais ne répondent pas) juste après un reboot de l'hôte** : la VM (10 Go) swappe si l'hôte (23 Go) fait tourner en même temps Docker Desktop + la vision + Windows. Libérer la RAM (fermer Docker Desktop :  + arrêt de l'app) ; si la VM reste bloquée (ACPI sans effet), extinction forcée puis redémarrage ( puis ) — PostgreSQL (WAL) et ext4 sont résistants à la coupure. Démarrer la VM AVANT de lancer la vision via .
 - **Webcam : l'index OpenCV est INSTABLE** (selon l'ordre de branchement/boot, la « USB Camera » a été vue index 1 le 6 oct., puis index 0 le 7 oct. — l'intégrée « HP Wide Vision HD » prenant l'autre). La vision choisit donc la caméra **par son nom** (`camera.name` = `"USB Camera"` dans `host/vision/config.json`, via `pygrabber`), avec repli sur `camera.index`. Ne jamais se fier à l'index seul : vérifier le nom retenu dans le log `[CAMÉRA] « … » trouvée à l'index N`.
 
 ## IoT et électronique : où en est la session IoT (mis à jour par elle)

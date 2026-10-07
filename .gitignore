@@ -35,3 +35,4 @@ host/hardening/backup/
 # Reconnaissance faciale : modèles téléchargés, galerie d'empreintes (données biométriques : jamais dans Git)
 host/faces/models/
 host/faces/data/
+host/logs/

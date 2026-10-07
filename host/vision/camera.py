@@ -16,7 +16,12 @@ def resolve_index(cam_cfg):
     """Index de la webcam. Si `name` est renseigné, on cherche la caméra dont le nom DirectShow
     contient ce texte (l'ordre DirectShow == l'ordre des index OpenCV CAP_DSHOW) : plus robuste que
     l'index, qui change selon l'ordre de branchement (la webcam USB peut être 0 ou 1 selon le boot).
-    Repli sur `index` si `name` est absent, introuvable, ou si pygrabber n'est pas là."""
+
+    Si `name` est demandé mais ABSENT (webcam USB débranchée, ou pas encore prête juste après un
+    démarrage de Windows), on lève RuntimeError : `open_camera_waiting` réessaie alors toutes les 2 s
+    au lieu de prendre une AUTRE caméra. La reconnaissance faciale ne doit JAMAIS basculer sur la
+    caméra intégrée du portable. Repli sur `index` seulement si `name` est vide, ou si `require_name`
+    est explicitement mis à false, ou si pygrabber est indisponible."""
     name = cam_cfg.get("name")
     if not name:
         return cam_cfg["index"]
@@ -30,6 +35,9 @@ def resolve_index(cam_cfg):
         if name.lower() in dev.lower():
             print(f"[CAMÉRA] « {dev} » trouvée à l'index {i} (nom « {name} »)")
             return i
+    if cam_cfg.get("require_name", True):
+        raise RuntimeError(f"caméra « {name} » absente (vues : {devices or 'aucune'}) — on attend l'USB, "
+                           f"pas de bascule sur l'intégrée")
     print(f"[CAMÉRA] aucune caméra nommée « {name} » (vues : {devices}), repli sur l'index {cam_cfg['index']}")
     return cam_cfg["index"]
 
