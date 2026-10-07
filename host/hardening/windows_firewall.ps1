@@ -9,7 +9,7 @@
 #   2. desactive toutes les regles ENTRANTES "Autoriser" du profil Public (jeux, adb, Node, Docker,
 #      diffusion sans fil...), sauf la gestion reseau de base de Windows (DHCP client, ICMPv6...) ;
 #   3. cree des regles Sentinel-X limitees au reseau de la table (192.168.137.0/24) :
-#        8883 MQTTS et 443 dashboard (redirections VirtualBox), 67/68 DHCP et 53 DNS du point d'acces.
+#        8883 MQTTS et 443 dashboard (redirections VirtualBox, fenetre OU headless), 67 DHCP et 53 DNS.
 # Les regles de blocage de l'IDS (SentinelX-IDS-*) ne sont jamais touchees.
 # Messages sans accents : PowerShell 5.1 lit les scripts sans BOM en ANSI.
 param([switch]$Apply, [switch]$Restore)
@@ -42,18 +42,27 @@ if ($Restore) {
     exit 0
 }
 
-# Programme qui ecoute pour les redirections NAT de VirtualBox (8883, 443)
-$vbox = Get-NetFirewallApplicationFilter | Where-Object { $_.Program -match "virtualboxvm\.exe$" } |
-        Select-Object -First 1 -ExpandProperty Program
-if (-not $vbox) { $vbox = "C:\Program Files\Oracle\VirtualBox\VirtualBoxVM.exe" }
+# Programmes qui ecoutent pour les redirections NAT de VirtualBox (8883, 443) : VirtualBoxVM.exe si la VM
+# est ouverte en fenetre, VBoxHeadless.exe si elle tourne sans fenetre (startvm --type headless).
+# Les deux sont autorises : une regle liee au seul VirtualBoxVM.exe bloquerait l'ESP et le dashboard
+# des que la VM tourne en headless (constate le 7 oct.).
+$vboxDir = "C:\Program Files\Oracle\VirtualBox"
+$found = Get-NetFirewallApplicationFilter | Where-Object { $_.Program -match "virtualboxvm\.exe$" } |
+         Select-Object -First 1 -ExpandProperty Program
+if ($found) { $vboxDir = Split-Path -Parent $found }
+$vboxProgs = @((Join-Path $vboxDir "VirtualBoxVM.exe"), (Join-Path $vboxDir "VBoxHeadless.exe"))
 
 $toDisable = Get-NetFirewallRule -Direction Inbound -Action Allow -Enabled True |
     Where-Object { $_.Profile -match "Public|Any" -and $_.Group -ne $CoreGroup -and
                    $_.DisplayName -notlike "$Prefix*" -and $_.DisplayName -notlike "SentinelX-IDS-*" }
 
-$newRules = @(
-    @{ Name = "MQTTS 8883 (ESP, vision)"; Protocol = "TCP"; Port = "8883"; Program = $vbox },
-    @{ Name = "HTTPS 443 (dashboard)";    Protocol = "TCP"; Port = "443";  Program = $vbox },
+$newRules = @()
+foreach ($prog in $vboxProgs) {
+    $short = [IO.Path]::GetFileNameWithoutExtension($prog)
+    $newRules += @{ Name = "MQTTS 8883 (ESP, vision) - $short"; Protocol = "TCP"; Port = "8883"; Program = $prog }
+    $newRules += @{ Name = "HTTPS 443 (dashboard) - $short";    Protocol = "TCP"; Port = "443";  Program = $prog }
+}
+$newRules += @(
     @{ Name = "DHCP point d'acces";       Protocol = "UDP"; Port = "67";   Program = $null },
     @{ Name = "DNS point d'acces UDP";    Protocol = "UDP"; Port = "53";   Program = $null },
     @{ Name = "DNS point d'acces TCP";    Protocol = "TCP"; Port = "53";   Program = $null }
