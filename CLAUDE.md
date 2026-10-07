@@ -426,12 +426,14 @@ Les photos de visages sont des données biométriques : la section « Images de 
 - Désormais : **exposition automatique**, capture **1280x720 MJPG** réduite en 640x480 (`INTER_AREA`, moins de bruit). Résultat : luminosité 160/255, image nette.
 - **Rehaussement faible lumière** (`enhance.py`) : CLAHE sur la luminance + gamma, seulement si la luminosité est < 100. 0,25 ms quand il est inactif, 3,7 ms actif (image assombrie à 22, ramenée à 105). Le bandeau vidéo affiche `lum` et `NUIT`. 33 tests faces + vision.
 
-**→ Dashboard : overlay « ALERTE INTRUS » (demandé par l'utilisateur, 6 oct.)**
-Afficher en grand la photo de la personne non reconnue + un bandeau **rouge clignotant « ALERTE INTRUS »** quand une alerte de personne non identifiée arrive. C'est une **alerte visuelle, PAS un verrou d'accès** : la reconnaissance peut mal lire (faible lumière, profil), un faux positif ne doit donc jamais bloquer qui que ce soit, seulement afficher un bandeau de trop.
-- **Déclencheur** : une alerte `VISION_IA`/`FUSION` dont le message contient « personne non identifiée » (côté vision, `detail.personne = "inconnue"`). Ne **pas** déclencher pour une « Personne autorisée : <nom> » (membre reconnu).
-- **Image** : une `INTRUSION` (zone interdite, niveau `CRITIQUE`) porte **déjà** la capture JPEG (`chemin_capture`). Pour une `PRESENCE` d'inconnu au périmètre (niveau info/avertissement, **sans** capture), prendre une **image figée du flux vidéo** `sentinel/video/cam1` que tu reçois déjà (image annotée avec le cadre et « inconnu »). Évite d'alourdir chaque alerte d'un JPEG.
-- **Comportement** : bandeau plein écran (ou large encart) rouge clignotant + photo, son d'alerte comme pour une `CRITIQUE`. Disparaît à l'**acquittement** de l'alerte ou après ~15 s sans nouvelle détection d'inconnu. Ne gêne pas la lecture seule ni la navigation.
-- La reconnaissance reste active côté vision en continu : rien à changer là-dessus. Si tu veux un signal plus explicite dans l'alerte (ex. un champ `intrus: true`), dis-le ici, la session Windows l'ajoutera au payload de la vision.
+**→ Dashboard / VM : overlay « ALERTE INTRUS » FAIT par la session Windows (7 oct.).** À la demande de l'utilisateur (Stève-John absent, échéance proche), la session Windows a réalisé l'overlay côté `dashboard/web/` — **interface seule, aucun changement d'API ni de Caddy**. Fusionné dans `main` (`feat/dashboard-overlay-intrus`). **Stève-John : c'est ton terrain, relis librement et ajuste.**
+- Nouveau composant `dashboard/web/src/Intrus.jsx` + intégration dans `Dashboard.jsx` + styles dans `App.css`.
+- **Déclencheur** : à la réception temps réel d'une alerte (`operation=INSERT`) d'origine `VISION_IA`/`FUSION` dont le `message` contient « non identifi… ». Un membre reconnu (« Personne autorisée : … ») ne déclenche **rien**.
+- **Image** : capture **figée du flux webcam** au moment de la détection (on garde le dernier Blob JPEG et on en tire une URL indépendante, révoquée à la fermeture — l'URL d'affichage, elle, est révoquée à chaque image). Pas de surcharge des alertes, pas d'appel API en plus.
+- **Comportement** : overlay plein écran, bandeau rouge clignotant « ⚠ ALERTE INTRUS » + photo + son (`alarme()`). S'efface à l'**acquittement**/résolution de l'alerte, après **15 s** sans nouvelle détection, ou au clic « Masquer ». Visible pour tous les rôles. **Jamais un verrou d'accès.**
+- **Build vérifié** : `npm run build` OK (603 modules, 0 erreur).
+- **→ VM : à déployer** — `feat/dashboard-overlay-intrus` est dans `main` (interface seule). `sudo docker compose up -d --build caddy` suffit (l'image `caddy` sert le front buildé ; `dashboard` et l'API sont inchangés). Aucun `.env` à toucher.
+- Reconnaissance inchangée côté vision. Un signal plus explicite (`intrus: true` dans le payload) reste possible si tu préfères t'appuyer dessus plutôt que sur le texte du message : dis-le, la session Windows l'ajoute.
 
 **→ IoT : réponses de la session Windows à ton commit `413ce13` (6 oct., soir)**
 - Bravo pour la validation des actionneurs depuis le dashboard et pour le schéma de câblage.
