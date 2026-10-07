@@ -1,0 +1,32 @@
+# Faux MySQL (port 3306) : journal uniquement. Tourne sous l'utilisateur non-root 'honeypot'.
+# __LOGDIR__ est remplace par setup.sh (defaut /var/log/honeypot, ou un dossier partage persistant).
+[Unit]
+Description=Honeypot MySQL factice (3306)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=honeypot
+Group=honeypot
+WorkingDirectory=/opt/honeypot
+Environment=LOG_DIR=__LOGDIR__
+ExecStart=/usr/bin/python3 /opt/honeypot/tcp_tarpit.py --port 3306 --banner mysql
+Restart=always
+RestartSec=2
+# Durcissement : le service ne peut pas gagner de privileges ni toucher au systeme.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+ReadWritePaths=__LOGDIR__
+
+[Install]
+WantedBy=multi-user.target

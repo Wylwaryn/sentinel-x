@@ -1,0 +1,18 @@
+# Rotation + chiffrement du journal (declenche par honeypot-rotate.timer). __LOGDIR__ via setup.sh.
+[Unit]
+Description=Honeypot : chiffre et fait tourner le journal
+
+[Service]
+Type=oneshot
+User=honeypot
+Group=honeypot
+Environment=LOG_DIR=__LOGDIR__
+Environment=SPOOL_DIR=/var/lib/honeypot/spool
+Environment=GNUPGHOME=/var/lib/honeypot/gnupg
+Environment=HP_RECIPIENT=sentinel-honeypot
+ExecStart=/opt/honeypot/rotate.sh
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=__LOGDIR__ /var/lib/honeypot/spool /var/lib/honeypot/gnupg

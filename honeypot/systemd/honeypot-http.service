@@ -1,0 +1,31 @@
+# Faux dashboard HTTP (port 8080) : journal uniquement. Utilisateur non-root 'honeypot'.
+# __LOGDIR__ est remplace par setup.sh.
+[Unit]
+Description=Honeypot dashboard HTTP factice (8080)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=honeypot
+Group=honeypot
+WorkingDirectory=/opt/honeypot
+Environment=LOG_DIR=__LOGDIR__
+ExecStart=/usr/bin/python3 /opt/honeypot/http_honeypot.py --port 8080
+Restart=always
+RestartSec=2
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+ReadWritePaths=__LOGDIR__
+
+[Install]
+WantedBy=multi-user.target

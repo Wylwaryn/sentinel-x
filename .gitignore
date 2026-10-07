@@ -36,3 +36,8 @@ host/hardening/backup/
 host/faces/models/
 host/faces/data/
 host/logs/
+
+# Honeypot : clé publique (locale, non versionnée) et fichiers chiffrés
+honeypot/host-pub.asc
+honeypot/*.gpg
+honeypot/chiffre/
