@@ -1,6 +1,9 @@
 """Sentinel-X — maintenance prédictive (IA sur les séries temporelles des capteurs).
 
 Usage (depuis host/predictive) :
+  python sentinel_predictive.py export-db               exporte toute la télémétrie de la base -> data/telemetry.csv
+  python sentinel_predictive.py episode "souffle"       note le DÉBUT d'un test (retiré de l'apprentissage)
+  python sentinel_predictive.py episode --fin           ... et sa fin
   python sentinel_predictive.py record --minutes 30     enregistre la télémétrie réelle (data/telemetry.csv)
   python sentinel_predictive.py train [--synthetic]     entraîne le modèle (models/) sur data/telemetry.csv
   python sentinel_predictive.py evaluate                entraîné sur un jour, testé sur un autre (jamais vu)
@@ -191,8 +194,33 @@ def split_sessions(samples, gap_s=120):
     return sessions
 
 
-def real_sessions(path):
-    return [sess for samples in load_csv(path).values() for sess in split_sessions(sorted(samples))]
+EPISODES = BASE / "data" / "episodes.csv"
+EPISODE_MARGIN_S = 300  # la fenêtre de 5 min qui suit un test le contient encore
+
+
+def load_episodes():
+    """Épisodes de test notés avec `episode` : [(début, fin)] en secondes UTC (fin = maintenant si en cours)."""
+    from datetime import datetime, timezone
+    if not EPISODES.exists():
+        return []
+    out = []
+    with EPISODES.open(encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            a = datetime.fromisoformat(r["debut_utc"]).timestamp()
+            b = datetime.fromisoformat(r["fin_utc"]).timestamp() if r["fin_utc"] else datetime.now(timezone.utc).timestamp()
+            out.append((a, b))
+    return out
+
+
+def real_sessions(path, exclude_episodes=True):
+    """Sessions continues de télémétrie réelle, épisodes de test retirés (+ 5 min après chacun)."""
+    episodes = load_episodes() if exclude_episodes else []
+    sessions = []
+    for samples in load_csv(path).values():
+        kept = [smp for smp in sorted(samples)
+                if not any(a <= smp[0] <= b + EPISODE_MARGIN_S for a, b in episodes)]
+        sessions += split_sessions(kept)
+    return sessions
 
 
 def baseline_of(sessions):
@@ -511,6 +539,62 @@ def cmd_edge_eval(args, cfg):
     print(f"     TOTAL : détecté {ok_tot}/{tot}, type juste {good_tot}/{max(ok_tot, 1)}")
 
 
+def cmd_episode(args, _cfg):
+    """Note un épisode de TEST (souffle, chaleur, briquet...) : retiré de l'apprentissage du « normal »."""
+    from datetime import datetime, timezone
+    EPISODES.parent.mkdir(parents=True, exist_ok=True)
+    rows = list(csv.DictReader(EPISODES.open(encoding="utf-8"))) if EPISODES.exists() else []
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    if args.fin:
+        open_rows = [r for r in rows if not r["fin_utc"]]
+        if not open_rows:
+            raise SystemExit("Aucun épisode en cours.")
+        open_rows[-1]["fin_utc"] = now
+        print(f"Épisode « {open_rows[-1]['description']} » terminé à {now}")
+    else:
+        if any(not r["fin_utc"] for r in rows):
+            raise SystemExit("Un épisode est déjà en cours : `episode --fin` d'abord.")
+        rows.append({"debut_utc": now, "fin_utc": "", "description": args.description or "test"})
+        print(f"Épisode « {rows[-1]['description']} » commencé à {now} (terminer avec : episode --fin)")
+    with EPISODES.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=["debut_utc", "fin_utc", "description"])
+        w.writeheader()
+        w.writerows(rows)
+
+
+EXPORT_SQL = ("SELECT extract(epoch from (m.date_mesure + m.heure_mesure)), d.numero_serie, m.temperature_c, "
+              "m.humidite_pct, m.gaz_brut, m.mouvement_detecte FROM mesure m JOIN dispositif d USING (id_dispositif) "
+              "ORDER BY 1;")
+
+
+def cmd_export_db(args, _cfg):
+    """Exporte TOUTE la télémétrie de la base (VM) vers data/telemetry.csv, par SSH (sentinel-vm)."""
+    import subprocess
+    remote = ("sudo docker exec -i sentinel-postgres-1 sh -c "
+              "'PGPASSWORD=$POSTGRES_PASSWORD psql -q -U $POSTGRES_USER -d $POSTGRES_DB -At -F,'")
+    res = subprocess.run(["ssh", "sentinel-vm", remote], input=EXPORT_SQL, capture_output=True, text=True,
+                         encoding="utf-8", timeout=300)
+    if res.returncode != 0:
+        raise SystemExit(f"Export impossible : {res.stderr.strip()[:300]}")
+    out = BASE / args.out
+    out.parent.mkdir(parents=True, exist_ok=True)
+    n = 0
+    with out.open("w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(COLUMNS)
+        for line in res.stdout.splitlines():
+            parts = line.split(",")
+            if len(parts) != 6:
+                continue
+            ts, serie, t, h, g, pir = parts
+            w.writerow([ts, serie, t, h, g, pir == "t"])
+            n += 1
+    sessions = real_sessions(out)
+    hours = sum((x[-1][0] - x[0][0]) / 3600 for x in sessions)
+    print(f"{n} mesures exportées -> {out} | {len(sessions)} session(s), {hours:.1f} h utiles "
+          f"après retrait des {len(load_episodes())} épisode(s) de test notés")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Sentinel-X maintenance prédictive")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -525,6 +609,11 @@ def main():
     p.add_argument("--series", type=int, default=12, help="incidents rejoués par type")
     p.add_argument("--horizon", type=float, default=20, help="minutes d'incident rejouées")
     p.add_argument("--purge", action="store_true", help="retire les épisodes de test du normal d'entraînement")
+    p = sub.add_parser("episode", help="noter un test (retiré de l'apprentissage)")
+    p.add_argument("description", nargs="?")
+    p.add_argument("--fin", action="store_true")
+    p = sub.add_parser("export-db")
+    p.add_argument("--out", default="data/telemetry.csv")
     p = sub.add_parser("export-esp")
     p.add_argument("--out", default="../../firmware/include/ml_params.h")
     p = sub.add_parser("edge-eval")
@@ -537,7 +626,8 @@ def main():
     args = parser.parse_args()
     cfg = load_config()
     {"record": cmd_record, "train": cmd_train, "evaluate": cmd_evaluate, "detect": cmd_detect,
-     "replay": cmd_replay, "export-esp": cmd_export_esp, "edge-eval": cmd_edge_eval}[args.cmd](args, cfg)
+     "replay": cmd_replay, "export-esp": cmd_export_esp, "edge-eval": cmd_edge_eval,
+     "episode": cmd_episode, "export-db": cmd_export_db}[args.cmd](args, cfg)
 
 
 if __name__ == "__main__":
