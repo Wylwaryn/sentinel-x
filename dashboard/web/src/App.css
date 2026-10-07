@@ -572,3 +572,69 @@ button.badge {
   max-width: 480px;
   margin-bottom: 12px;
 }
+
+/* ---------- Overlay « ALERTE INTRUS » (personne non reconnue par la vision) ---------- */
+.intrus-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.85);
+}
+
+.intrus-cadre {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: min(92vw, 560px);
+  padding: 16px;
+  text-align: center;
+  background: var(--fond-panneau);
+  border: 3px solid var(--critique);
+  border-radius: 10px;
+  box-shadow: 0 0 40px rgba(208, 59, 59, 0.6);
+}
+
+.intrus-bandeau {
+  width: 100%;
+  padding: 10px;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #ffffff;
+  background: var(--critique);
+  border-radius: 6px;
+  animation: clignote 0.5s infinite alternate;
+}
+
+.intrus-photo {
+  max-width: 100%;
+  max-height: 60vh;
+  object-fit: contain;
+  border: 1px solid var(--bordure);
+  border-radius: 6px;
+}
+
+.intrus-photo-vide {
+  width: 100%;
+  padding: 40px 0;
+  color: var(--texte-discret);
+}
+
+.intrus-infos {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.intrus-infos strong {
+  font-size: 1.05rem;
+}
+
+.intrus-infos span {
+  color: var(--texte-secondaire);
+}
