@@ -99,35 +99,76 @@ Seuils (`config.json`) : alerte 0,5, critique 0,85, blocage 0,85, cooldown 30 s 
 ## 3. Maintenance prédictive (IA capteurs) — anticiper l'incident environnemental
 
 **Rôle.** À partir de la télémétrie de l'ESP (DHT22 température/humidité, MQ-2 gaz), détecter une
-**dérive** avant qu'elle n'atteigne une limite dangereuse, en nommer la nature, et **chiffrer le
-délai** restant. Elle juge des **évolutions**, pas des seuils fixes.
+**dérive** avant qu'elle n'atteigne un seuil dangereux, en **nommer la nature**, **chiffrer le délai**
+restant et **dire quoi faire** pour régler le problème avant qu'il n'arrive.
 
-**Chaîne de traitement** (`host/predictive/`)
-1. **Entrée** : abonnement MQTTS `sentinel/telemetry` (compte `capteurs`, lecture seule).
-2. **Caractéristiques cinétiques** (`features.py`), sur une fenêtre **courte (1 min)** et **longue
-   (5 min)**, pour chaque capteur : écart à la médiane longue, **pente courte**, **pente longue**,
-   volatilité, **accélération** (pente courte − pente longue). Entre capteurs :
-   **corrélations température/gaz et température/humidité**. Qualité : part de valeurs **manquantes**
-   et **figées** (capteur bloqué). Tout est relatif à l'historique récent.
-3. **Étage 1 — détection** (non supervisée, sur le fonctionnement normal) : **Isolation Forest** +
-   **écart statistique** (max |z|). Score final = max des deux sur [0, 1] (même raison que l'IDS :
-   l'écart statistique couvre la saturation de l'Isolation Forest sur les valeurs extrêmes).
-4. **Prévision** : quand une tendance est **significative** (pente au-delà de celles du
-   fonctionnement normal, **seuil appris**), projection linéaire jusqu'aux **limites d'exploitation**
-   (`config.json` : température 45 °C, gaz 700). « Au rythme actuel, 45 °C dans ~18 min. » Les limites
-   **ne déclenchent rien seules** : la détection vient de l'étage 1, la prévision chiffre l'urgence.
-5. **Étage 2 — type d'incident** (supervisé, Random Forest) : `SURCHAUFFE`, `FUITE_GAZ`,
-   `CORRELATION_TEMP_GAZ`, `CAPTEUR_DEFAILLANT`, sinon `DERIVE_INDETERMINEE`.
-6. **Alerte par épisode** : persistance sur 2 évaluations avant d'alerter, **une alerte par épisode**
-   (début, aggravation, type précisé, prévision), rappel toutes les 10 min. Évite le matraquage.
+**Données.** Entraînée sur **5 039 mesures réelles** de `SX-G2-01` (6 et 7 oct., une mesure toutes les
+5 s), exportées de PostgreSQL. Fonctionnement normal mesuré dans la pièce (p0,5–p99,5) : **24,2–29,1 °C**,
+**63,7–73,6 % d'humidité**, **gaz brut 53–80** (médiane 67).
 
-**Sorties.** API d'ingestion (`CAPTEURS_IA`/`ANOMALIE_ENVIRONNEMENTALE`, avec score, message et
-détail : sous-type, prévision, épisode).
+### Bornes d'alerte (`host/predictive/config.json`, `bounds.py`)
 
-**Mesures sur données synthétiques jamais vues** : détection **90 %**, typage **97,5 %**, **< 1
-fausse alerte par heure**. Surchauffe à +1 °C/min : alerte à +30 s, délai annoncé 20,9 min pour
-19,0 min réelles. **À ré-entraîner sur la télémétrie réelle** dès que l'ESP émet
-(`record --minutes 30` puis `train`).
+| Capteur | Avertissement (agir avant) | Critique (danger) | Justification |
+|---|---|---|---|
+| Température | **35 °C** | **45 °C** | +6 °C au-dessus du maximum normal observé ; 45 °C : risque matériel et départ de feu |
+| Humidité haute | **80 %** | **90 %** | au-dessus du normal (≤ 74 %) ; risque de condensation sur l'électronique |
+| Humidité basse | **30 %** | **20 %** | air sec : risque de décharges électrostatiques |
+| Gaz (MQ-2) | **base + 30** (97) | **base + 80** (147) | MQ-2 non étalonné en ppm : bornes **relatives** à la ligne de base apprise |
+
+Les bornes jouent trois rôles : la **prévision** chiffre le délai avant la borne critique ; une borne
+**franchie** déclenche une alerte même si le modèle hésite (**filet de sécurité déterministe**, actif
+dès l'allumage) ; l'IA, elle, détecte la dérive **bien avant** les bornes.
+
+### Chaîne de traitement (`host/predictive/`)
+1. **Entrée** : MQTTS `sentinel/telemetry` (compte `capteurs`, lecture seule).
+2. **Caractéristiques cinétiques** (`features.py`), sur 1 min et 5 min, par capteur : écart à la médiane,
+   pentes courte et longue, volatilité, accélération ; corrélations température/gaz et
+   température/humidité ; part de valeurs manquantes et figées. Tout est **relatif** à l'historique récent.
+3. **Étage 1 — détection** (non supervisé, entraîné sur le **normal réel**) : Isolation Forest + écart
+   statistique (max |z|), score final = max des deux.
+4. **Prévision** : quand une tendance est significative (pente au-delà du normal : seuil **appris**,
+   ±0,66 °C/min, ±1,8 %/min, ±3,7/min), projection jusqu'à la borne critique, **vers le haut ou vers le bas**.
+5. **Étage 2 — type d'incident** (Random Forest), entraîné sur des incidents **superposés à la vraie
+   télémétrie** de la pièce, chacun avec son **action préventive** :
+
+| Type | Signature | Action préventive (dans l'alerte) |
+|---|---|---|
+| `SURCHAUFFE` | température qui monte (l'humidité relative baisse) | vérifier ventilation et sources de chaleur, couper l'appareil avant 45 °C |
+| `CORRELATION_TEMP_GAZ` | échauffement lent + dérive du gaz : **risque d'incendie** | couper l'alimentation de l'équipement suspect, aérer, préparer l'extincteur |
+| `FUITE_GAZ` | qualité de l'air dégradée (fuite, bouffée, fumée) | aérer, aucune flamme ni étincelle, couper le gaz, évacuer si ça monte |
+| `HUMIDITE_ELEVEE` | humidité qui monte sans échauffement | aérer/déshumidifier, chercher une fuite d'eau, éloigner l'électronique |
+| `HUMIDITE_BASSE` | humidité qui chute sans échauffement | humidifier, manipuler l'électronique avec précaution |
+| `CAPTEUR_DEFAILLANT` | valeurs figées, aberrantes ou absentes | vérifier câblage et alimentation du capteur |
+
+6. **Alerte par épisode** : persistance sur 2 évaluations, une alerte par épisode (début, aggravation,
+   type précisé, prévision), rappel toutes les 10 min.
+
+### Préchauffe du MQ-2 (problème réel trouvé dans les données)
+À froid, le MQ-2 lit **~6–10** et ne rejoint sa ligne de base qu'en **~16 min** ; et cette base **dérive
+d'un jour à l'autre** (~67 le 6, ~58 le 7). Sans précaution, chaque allumage du boîtier ressemblerait à
+une fuite de gaz. Le service détecte la préchauffe (gaz < 70 % de la base), **exclut le gaz** de l'analyse
+pendant la remontée + 5 min, et continue de surveiller température et humidité. La borne gaz reste
+active : une vraie fuite fait **monter** le gaz au-dessus de la base et alerte quand même (testé).
+
+### Résultats (évaluation honnête : entraîné le 6 oct., testé le 7, jamais vu)
+`python sentinel_predictive.py evaluate`
+- **Fonctionnement normal : 0 fausse alerte en 1,6 h**, deux allumages à froid du MQ-2 compris.
+- **Surchauffe +1 °C/min** superposée à un tronçon réel : alerte **15 min avant 45 °C** ; délai annoncé
+  17,2 min pour 15,2 min réelles.
+- **Incidents superposés au réel**, rejoués dans le pipeline complet (20 min) : **type juste 47 fois sur
+  49 (96 %)**, 0 fausse alerte avant le début des incidents. Surchauffe 12/12 en 2,3 min, gaz 12/12 en
+  2,8 min, humidité haute 12/12 en 5,2 min, risque d'incendie (dérive lente) 8/12 en 14,7 min.
+- **Limites, dites franchement** : les dérives **très lentes** d'humidité à la baisse (3/12 en 20 min)
+  et les capteurs figés (2/12) sont mal vus, car le 6 oct. était une journée de tests (boîtier manipulé,
+  souffle, briquet) et la température de la pièce reste souvent figée au dixième près. Plus de journées
+  de fonctionnement **calme** resserreront l'enveloppe. Variante « purge des épisodes de test » essayée :
+  rejetée (2 fausses alertes à l'allumage, prévision moins juste).
+- **20 tests unitaires** (`pytest host/predictive`), dont : préchauffe à froid sans alerte, fuite pendant
+  la stabilisation détectée, borne critique franchie avec un modèle calme, humidité qui chute vers 20 %.
+
+**Ré-entraîner** (export de la base, puis `train`) :
+`ssh sentinel-vm "sudo docker exec sentinel-postgres-1 …"` → `data/telemetry.csv`, puis
+`python sentinel_predictive.py train` ; la ligne de base et les bornes gaz sont réapprises.
 
 ---
 

@@ -3,9 +3,32 @@
     "short_s": 60,
     "long_s": 300,
     "step_s": 10,
-    "warmup_s": 120,
+    "warmup_s": 300,
     "min_samples_short": 5,
     "min_samples_long": 20
+  },
+  "prechauffe_gaz": {
+    "_note": "MQ-2 à froid : la valeur part de ~6-10 et rejoint la ligne de base en ~16 min (mesuré le 7 oct.). La base elle-même dérive d'un jour à l'autre (~67 le 6, ~58 le 7) : le seuil est donc PROPORTIONNEL. Tant que le gaz est sous ratio_base x base, puis pendant stabilisation_s, il est exclu de l'analyse (sinon chaque allumage ressemble à une fuite). Température et humidité restent surveillées, et la borne gaz reste active (une fuite fait MONTER le gaz au-dessus de la base).",
+    "ratio_base": 0.7,
+    "stabilisation_s": 300
+  },
+  "limites": {
+    "_note": "Bornes d'alerte. avertissement = prévention (agir avant), critique = danger. Normal mesuré sur la pièce (5 039 mesures, 6-7 oct., p0.5-p99.5) : 24,2-29,1 °C ; 63,7-73,6 % ; gaz brut 53-80 (médiane 67). Le gaz MQ-2 n'est pas étalonné en ppm : ses bornes sont RELATIVES à la ligne de base apprise (reference_defaut si aucun modèle).",
+    "temp": {
+      "avertissement_haut": 35,
+      "critique_haut": 45
+    },
+    "hum": {
+      "avertissement_haut": 80,
+      "critique_haut": 90,
+      "avertissement_bas": 30,
+      "critique_bas": 20
+    },
+    "gaz": {
+      "reference_defaut": 67,
+      "avertissement_delta": 30,
+      "critique_delta": 80
+    }
   },
   "model": {
     "dir": "models",
@@ -13,8 +36,7 @@
     "iforest_trees": 200
   },
   "forecast": {
-    "_note": "Limites d'exploitation de la centrale (fiche technique). Elles servent UNIQUEMENT à estimer le délai avant incident ; elles ne déclenchent jamais d'alerte seules : la détection est faite par le modèle.",
-    "limites_exploitation": {"temp": 45.0, "gaz": 700},
+    "_note": "Délai annoncé jusqu'à la borne CRITIQUE au rythme de la tendance actuelle (tendance significative seulement : pente au-delà de celles du fonctionnement normal, seuil appris).",
     "horizon_min": 30,
     "critical_min": 10,
     "min_score": 0.3

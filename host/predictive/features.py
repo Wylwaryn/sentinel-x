@@ -35,8 +35,10 @@ def _corr(a, b):
     return float(np.corrcoef(a, b)[0, 1])
 
 
-def compute_features(samples, now, short_s, long_s, min_short=5, min_long=20):
+def compute_features(samples, now, short_s, long_s, min_short=5, min_long=20, quality_cols=(1, 2, 3)):
     """samples : liste de (t, temperature_c, humidite_pct, gaz_brut), None si capteur en défaut.
+    quality_cols : capteurs pris en compte dans valeurs_manquantes / valeurs_figees (1 temp, 2 hum, 3 gaz) ;
+    on en retire le gaz pendant la préchauffe du MQ-2 (il est alors absent volontairement).
     Retourne le vecteur FEATURES, ou None si l'historique est insuffisant."""
     long_w = [s for s in samples if now - long_s <= s[0] <= now]
     short_w = [s for s in long_w if s[0] >= now - short_s]
@@ -66,10 +68,10 @@ def compute_features(samples, now, short_s, long_s, min_short=5, min_long=20):
     vec.append(_corr(*paired("temp", "gaz")))
     vec.append(_corr(*paired("temp", "hum")))
 
-    cells = [s[c] for s in short_w for c in (1, 2, 3)]
+    cells = [s[c] for s in short_w for c in quality_cols]
     vec.append(sum(v is None for v in cells) / len(cells))
     frozen, pairs = 0, 0
-    for c in (1, 2, 3):
+    for c in quality_cols:
         vals = [s[c] for s in short_w if s[c] is not None]
         pairs += max(len(vals) - 1, 0)
         frozen += sum(1 for a, b in zip(vals, vals[1:]) if a == b)
