@@ -265,3 +265,41 @@ def test_parse_telemetry():
     assert parse_telemetry(b'{"temperature_c": 21.5}') is None
     assert parse_telemetry(b"pas du json") is None
     assert parse_telemetry(b'{"serie": "SX", "temperature_c": true}') == ("SX", None, None, None)
+
+
+# ---------- IA embarquée (jumeau Python du code ESP8266) ----------
+EDGE_P = {"base_temp": 26.2, "base_hum": 68.7, "base_gaz": 67, "temp_warn": 35, "temp_crit": 45,
+          "hum_high_warn": 80, "hum_high_crit": 90, "hum_low_warn": 30, "hum_low_crit": 20,
+          "gaz_warn": 97, "gaz_crit": 147, "gaz_prechauffe": 47,
+          "slope_temp": 0.66, "slope_hum": 1.77, "slope_gaz": 3.71}
+
+
+def edge_run(fn, minutes=30):
+    from edge import replay
+    return [e for e in replay(EDGE_P, [(t, *fn(t)) for t in range(0, minutes * 60, 5)]) if e[2]]
+
+
+def test_edge_quiet_room_and_cold_mq2_do_not_alert():
+    rng = random.Random(3)
+    cold = lambda t: (round(26 + rng.gauss(0, 0.1), 1), round(69 + rng.gauss(0, 0.5), 1),  # noqa: E731
+                      int(67 - 59 * np.exp(-t / 300) + rng.gauss(0, 2)))
+    assert edge_run(cold) == []
+
+
+def test_edge_overheat_detected_before_critical_bound_with_eta():
+    ramp = lambda t: (26 + max(0, t - 300) / 60, 69 - 2 * max(0, t - 300) / 60, 67)  # noqa: E731
+    evs = edge_run(ramp)
+    t, kind, level, minutes = evs[0]
+    assert kind == "SURCHAUFFE" and t - 300 <= 240            # vue en moins de 4 min
+    assert minutes == pytest.approx((45 - (26 + (t - 300) / 60)) / 1.0, rel=0.25)   # délai juste
+    assert any(e[2] == "CRITIQUE" for e in evs)               # puis critique avant 45 °C
+
+
+def test_edge_temperature_plus_gas_drift_is_fire_risk():
+    fire = lambda t: (26 + 0.3 * max(0, t - 300) / 60, 69.0, 67 + 4 * max(0, t - 300) / 60)  # noqa: E731
+    assert any(e[1] == "RISQUE_FEU" for e in edge_run(fire))
+
+
+def test_edge_critical_bound_alerts_from_boot():
+    evs = edge_run(lambda t: (26.0, 93.0, 67), minutes=2)   # humidité déjà au-dessus de 90 % à l'allumage
+    assert evs and evs[0][1] == "HUMIDITE_HAUTE" and evs[0][2] == "CRITIQUE"

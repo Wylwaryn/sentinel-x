@@ -4,6 +4,8 @@ Usage (depuis host/predictive) :
   python sentinel_predictive.py record --minutes 30     enregistre la télémétrie réelle (data/telemetry.csv)
   python sentinel_predictive.py train [--synthetic]     entraîne le modèle (models/) sur data/telemetry.csv
   python sentinel_predictive.py evaluate                entraîné sur un jour, testé sur un autre (jamais vu)
+  python sentinel_predictive.py export-esp              paramètres appris -> firmware/include/ml_params.h
+  python sentinel_predictive.py edge-eval               valide le détecteur EMBARQUÉ (jumeau edge.py) pareil
   python sentinel_predictive.py detect                  détection temps réel (MQTT -> API)
   python sentinel_predictive.py replay --csv FICHIER    rejoue un enregistrement hors ligne (évaluation)
 Compte MQTT : variables SENTINEL_CAPTEURS_USER / SENTINEL_CAPTEURS_PASS ; jeton API : SENTINEL_CAPTEURS_TOKEN.
@@ -412,6 +414,103 @@ def cmd_replay(args, cfg):
         print(f"  t = {rel / 60:5.1f} min | {ev['episode']:15} | {ev['niveau']:13} | {ev['sous_type']}{fc_txt}")
 
 
+def cmd_export_esp(args, cfg):
+    """Écrit les paramètres appris par le PC dans firmware/include/ml_params.h (détecteur embarqué)."""
+    from datetime import datetime, timezone
+
+    from edge import params_from_model
+    from model import PredictiveModel
+    model = PredictiveModel.load(BASE / cfg["model"]["dir"])
+    if not model.baseline:
+        raise SystemExit("Modèle sans ligne de base réelle : lancer d'abord `train` sur data/telemetry.csv")
+    p = params_from_model(model, cfg)
+    out = (BASE / args.out).resolve()
+    f = lambda v: f"{float(v):.3f}f"  # noqa: E731
+    lines = [
+        "// GÉNÉRÉ par host/predictive/sentinel_predictive.py export-esp : NE PAS MODIFIER À LA MAIN.",
+        f"// {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC. Paramètres APPRIS par le PC sur la télémétrie réelle :",
+        "// le PC apprend, l'ESP applique (détecteur embarqué edgeAi* de main.cpp, jumeau Python : edge.py).",
+        "#pragma once",
+        "",
+        "// Ligne de base de la pièce (médianes du fonctionnement normal réel)",
+        f"#define ML_BASE_TEMP {f(p['base_temp'])}",
+        f"#define ML_BASE_HUM {f(p['base_hum'])}",
+        f"#define ML_BASE_GAZ {round(p['base_gaz'])}",
+        "",
+        "// Bornes d'alerte : avertissement (agir avant) / critique (danger)",
+        f"#define ML_TEMP_WARN {f(p['temp_warn'])}",
+        f"#define ML_TEMP_CRIT {f(p['temp_crit'])}",
+        f"#define ML_HUM_HIGH_WARN {f(p['hum_high_warn'])}",
+        f"#define ML_HUM_HIGH_CRIT {f(p['hum_high_crit'])}",
+        f"#define ML_HUM_LOW_WARN {f(p['hum_low_warn'])}",
+        f"#define ML_HUM_LOW_CRIT {f(p['hum_low_crit'])}",
+        f"#define ML_GAZ_WARN {f(p['gaz_warn'])}   // relatif à la ligne de base du MQ-2 (non étalonné)",
+        f"#define ML_GAZ_CRIT {f(p['gaz_crit'])}",
+        f"#define ML_GAZ_PRECHAUFFE {f(p['gaz_prechauffe'])}   // en dessous : MQ-2 en préchauffe, gaz ignoré",
+        "",
+        "// Pentes normales maximales apprises (5 min, p99.5, par minute) : au-delà, tendance significative",
+        f"#define ML_SLOPE_TEMP {f(p['slope_temp'])}",
+        f"#define ML_SLOPE_HUM {f(p['slope_hum'])}",
+        f"#define ML_SLOPE_GAZ {f(p['slope_gaz'])}",
+        "",
+    ]
+    out.write_text("\n".join(lines), encoding="utf-8")
+    print(f"Paramètres embarqués écrits dans {out}")
+    for k, v in p.items():
+        print(f"  {k:15} {v}")
+
+
+def cmd_edge_eval(args, cfg):
+    """Valide le détecteur EMBARQUÉ (jumeau Python) comme le modèle PC : appris le 1er jour, testé sur un autre."""
+    import random
+    from datetime import datetime, timezone
+
+    from edge import PC_KIND, params_from_model, replay
+    from simulate import apply_incident, real_segment
+
+    def day(sess):
+        return datetime.fromtimestamp(sess[0][0], timezone.utc).date()
+
+    sessions = real_sessions(BASE / args.data)
+    d0 = day(sessions[0])
+    train = [x for x in sessions if day(x) == d0]
+    test = [x for x in sessions if day(x) != d0]
+    model, *_ = train_model(cfg, train)
+    params = params_from_model(model, cfg)
+    print(f"Paramètres appris le {d0} : " + ", ".join(f"{k} {v}" for k, v in params.items()))
+
+    hours = sum((x[-1][0] - x[0][0]) / 3600 for x in test)
+    alerts = [a for sess in test for a in replay(params, sess) if a[2]]
+    print(f"\n1) Normal jamais vu ({hours:.1f} h, allumages à froid compris) : {len(alerts)} alerte(s) embarquée(s)")
+    for t, kind, level, m in alerts:
+        print(f"     {datetime.fromtimestamp(t, timezone.utc):%d %H:%M} {level} {kind}")
+
+    test_clean = clean_sessions(test, cfg, model.baseline["gaz"])
+    rng, onset, horizon = random.Random(123), 400.0, args.horizon * 60.0
+    print(f"\n2) Incidents superposés au réel jamais vu ({args.horizon:g} min), vus par l'ESP seul :")
+    expected = {v: k for k, v in PC_KIND.items()}
+    tot = ok_tot = good_tot = 0
+    for kind in [k for k in PC_KIND.values()]:
+        delays, good, fp = [], 0, 0
+        for _ in range(args.series):
+            seg = real_segment(rng, test_clean, onset + horizon)
+            if seg is None:
+                break
+            evs = [e for e in replay(params, apply_incident(seg, kind, onset, rng)) if e[2]]
+            fp += sum(1 for e in evs if e[0] < onset)
+            after = [e for e in evs if e[0] >= onset]
+            if after:
+                delays.append((after[0][0] - onset) / 60)
+                # type juste si l'une des alertes de l'incident a le bon type (le 1er signe peut être plus général)
+                good += any(e[1] == expected[kind] for e in after)
+        n = args.series
+        tot, ok_tot, good_tot = tot + n, ok_tot + len(delays), good_tot + good
+        med = sorted(delays)[len(delays) // 2] if delays else float("nan")
+        print(f"     {kind:22} détecté {len(delays):2}/{n} en {med:4.1f} min (médiane) | type juste {good:2}/{max(len(delays), 1)}"
+              + (f" | {fp} alerte(s) avant l'incident" if fp else ""))
+    print(f"     TOTAL : détecté {ok_tot}/{tot}, type juste {good_tot}/{max(ok_tot, 1)}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Sentinel-X maintenance prédictive")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -426,13 +525,19 @@ def main():
     p.add_argument("--series", type=int, default=12, help="incidents rejoués par type")
     p.add_argument("--horizon", type=float, default=20, help="minutes d'incident rejouées")
     p.add_argument("--purge", action="store_true", help="retire les épisodes de test du normal d'entraînement")
+    p = sub.add_parser("export-esp")
+    p.add_argument("--out", default="../../firmware/include/ml_params.h")
+    p = sub.add_parser("edge-eval")
+    p.add_argument("--data", default="data/telemetry.csv")
+    p.add_argument("--series", type=int, default=12)
+    p.add_argument("--horizon", type=float, default=20)
     sub.add_parser("detect")
     p = sub.add_parser("replay")
     p.add_argument("--csv", required=True)
     args = parser.parse_args()
     cfg = load_config()
     {"record": cmd_record, "train": cmd_train, "evaluate": cmd_evaluate, "detect": cmd_detect,
-     "replay": cmd_replay}[args.cmd](args, cfg)
+     "replay": cmd_replay, "export-esp": cmd_export_esp, "edge-eval": cmd_edge_eval}[args.cmd](args, cfg)
 
 
 if __name__ == "__main__":

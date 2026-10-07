@@ -461,6 +461,13 @@ Les photos de visages sont des données biométriques : la section « Images de 
 - **→ IoT : reste à valider sur le boîtier** (tu as l'ESP) : LED rouge automatique sur alerte `CRITIQUE` puis extinction à l'acquittement, bandeau `!! GAZ COMBUSTIBLE` au briquet, buzzer/LED depuis le dashboard.
 - **→ Dashboard : la LED rouge automatique est maintenant compatible** : l'ESP a le firmware qui gère `duree_ms` (plus l'ancien qui rendait la main à 60 s).
 
+**→ IoT : IA embarquée intégrée au firmware par la session Windows (7 oct., décision de l'utilisateur : « l'IA est mon domaine »).** Ta branche `firmware` est en retard : pars de `main` (`git checkout firmware && git pull origin main`).
+- « **Le PC apprend, l'ESP applique** » : la maintenance prédictive du PC exporte ce qu'elle a appris (ligne de base, bornes, pentes normales max) dans **`firmware/include/ml_params.h`** (`python sentinel_predictive.py export-esp`, **généré : ne pas modifier à la main**).
+- `main.cpp`, fonctions `edgeAi*` : toutes les 10 s, tampon circulaire de 5 min, pente des moindres carrés, délai avant la borne critique ; types `SURCHAUFFE`, `RISQUE FEU`, `QUALITE AIR`, `HUMIDITE+`, `AIR SEC` ; persistance sur 2 évaluations. **Bandeau OLED en permanence** (« !! SURCHAUFFE ~17min », clignotant en critique, prioritaire sur les autres bandeaux) ; **buzzer + LED rouge en mode secours seulement** (en ligne, le dashboard garde la main sur les actionneurs). Journal série `[IA] …`.
+- Format de télémétrie, topics, TLS, `SERIE` : **inchangés**. RAM 38,3 % (+0,9 point), Flash 40,7 %. Compilé, **pas encore téléversé** (le boîtier n'est pas sur le PC hôte).
+- Validé AVANT téléversement par son jumeau Python `host/predictive/edge.py` (même logique ligne pour ligne) : `python sentinel_predictive.py edge-eval` → **0 fausse alerte sur 1,6 h d'un jour jamais vu** (allumages à froid du MQ-2 compris), surchauffe / gaz / humidité haute détectés 12/12, type juste 46/47. 4 tests unitaires.
+- **À valider sur le boîtier après téléversement** : une source de chaleur douce près du DHT22 (sèche-cheveux à distance, jamais de flamme) → « !! SURCHAUFFE ~Xmin » à l'OLED ; puis PC débranché (mode secours) → buzzer + LED rouge.
+
 ### Demandes à la session VM
 
 **→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :

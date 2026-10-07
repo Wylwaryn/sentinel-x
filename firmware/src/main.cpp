@@ -7,6 +7,10 @@
 // - Affiche l'état sur l'OLED (IP, liaison, mesures).
 // - Mode secours (edge) : sans broker depuis 30 s, alerte locale sur mouvement ou
 //   montée brusque du gaz par rapport à SA PROPRE ligne de base (pas de seuil absolu).
+// - IA embarquée (edgeAi) : « le PC apprend, l'ESP applique ». Paramètres appris par la maintenance
+//   prédictive du PC (ml_params.h) ; toutes les 10 s, tendance sur 5 min et délai avant la borne critique
+//   (surchauffe, risque d'incendie, qualité de l'air, humidité haute ou basse). Bandeau OLED en permanence ;
+//   buzzer et LED rouge en mode secours. Jumeau Python validé sur la télémétrie réelle : host/predictive/edge.py.
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <Adafruit_GFX.h>
@@ -20,6 +24,7 @@
 
 #include "ca_cert.h"
 #include "config.h"
+#include "ml_params.h"
 #include "secrets.h"
 
 // Heure de compilation, injectée par build_epoch.py : repli si le NTP est injoignable.
@@ -54,6 +59,138 @@ String lastCmd = "-";
 // Une commande LED du dashboard prend la main pendant LED_MANUAL_HOLD_MS, puis le mode
 // automatique (témoin de liaison, mode secours) reprend : la déconnexion reste toujours signalée.
 unsigned long greenManualUntil = 0, redManualUntil = 0;
+
+// ---------------------------------------------------------------- IA embarquée
+// Même logique que host/predictive/edge.py (validé : 0 fausse alerte sur un jour jamais vu, type juste 46/47).
+#define AI_N 30                 // tampon circulaire : 30 x 10 s = 5 min
+#define AI_STEP_MS 10000UL
+#define AI_MIN_POINTS 12        // 2 min de mesures valides avant de parler de tendance
+#define AI_HORIZON_WARN 30.0f   // borne critique prévue dans 30 min -> avertissement
+#define AI_HORIZON_CRIT 10.0f   // ... dans 10 min -> critique
+#define AI_STAB_MS 300000UL     // stabilisation du MQ-2 après sa préchauffe
+#define AI_FIRE_GAS_RATIO 0.25f // gaz qui dérive (fraction de la pente normale max) ...
+#define AI_FIRE_GAS_DELTA 15.0f // ... ou au-dessus de la ligne de base de cette marge
+#define AI_FIRE_TEMP_RATIO 0.25f// ... avec une température qui monte : risque d'incendie
+
+enum AiKind { AI_NONE, AI_RISQUE_FEU, AI_SURCHAUFFE, AI_GAZ, AI_HUM_HAUTE, AI_AIR_SEC };  // ordre = priorité
+enum AiLevel { AI_OK = 0, AI_WARN = 1, AI_CRIT = 2 };
+const char *const AI_LABEL[] = {"", "RISQUE FEU", "SURCHAUFFE", "QUALITE AIR", "HUMIDITE+", "AIR SEC"};
+const char *const AI_LEVEL_TXT[] = {"OK", "AVERTISSEMENT", "CRITIQUE"};
+struct AiCand { AiKind kind; AiLevel level; float minutes; };
+
+float aiT[AI_N], aiH[AI_N], aiG[AI_N];   // NAN = pas de mesure
+unsigned long aiTs[AI_N];
+int aiCount = 0, aiHead = 0;             // aiHead : prochaine case à écrire
+int aiStreak = 0;
+unsigned long lastAi = 0, gasLowMs = 0;
+bool gasLowSeen = false;
+AiKind aiKind = AI_NONE;
+AiLevel aiLevel = AI_OK;
+float aiMinutes = NAN;
+
+int aiIndex(int k) { return (aiHead - aiCount + k + AI_N) % AI_N; }  // k = 0 : plus ancienne mesure
+
+float aiLastValid(const float *v) {
+  for (int k = aiCount - 1; k >= 0; k--) if (!isnan(v[aiIndex(k)])) return v[aiIndex(k)];
+  return NAN;
+}
+
+// Pente des moindres carrés, en unités par minute, sur les `last` dernières mesures (toutes : 5 min).
+// NAN si trop peu de points.
+float aiSlope(const float *v, int last = AI_N) {
+  unsigned long newest = aiTs[aiIndex(aiCount - 1)];
+  float ts[AI_N], vs[AI_N];
+  int n = 0;
+  for (int k = max(0, aiCount - last); k < aiCount; k++) {
+    int i = aiIndex(k);
+    if (isnan(v[i])) continue;
+    ts[n] = -(float)(newest - aiTs[i]) / 1000.0f;  // secondes, relatives à la mesure la plus récente
+    vs[n++] = v[i];
+  }
+  if (n < AI_MIN_POINTS || ts[n - 1] - ts[0] < (AI_MIN_POINTS - 1) * (AI_STEP_MS / 1000.0f)) return NAN;
+  float mt = 0, mv = 0;
+  for (int k = 0; k < n; k++) { mt += ts[k]; mv += vs[k]; }
+  mt /= n; mv /= n;
+  float num = 0, den = 0;
+  for (int k = 0; k < n; k++) { num += (ts[k] - mt) * (vs[k] - mv); den += (ts[k] - mt) * (ts[k] - mt); }
+  return den > 0 ? num / den * 60.0f : NAN;
+}
+
+// Pente qui chiffre le délai : la pente sur 5 min décide s'il y a une tendance ; en début de montée elle
+// mélange encore du « plat », donc la pente des 2 dernières minutes, si elle est plus raide, donne le délai.
+float aiEtaSlope(float slope, float recent, int sign) {
+  return (!isnan(recent) && !isnan(slope) && sign * recent > sign * slope) ? recent : slope;
+}
+
+// Minutes avant la borne critique si la tendance va vers elle (sign +1 : borne haute, -1 : basse).
+float aiMinutesTo(float last, float crit, float slope, int sign) {
+  if (isnan(last) || isnan(slope) || sign * slope <= 0) return NAN;
+  return max(0.0f, sign * (crit - last) / slope);
+}
+
+// MQ-2 exploitable ? Préchauffe (valeur absente ou sous ML_GAZ_PRECHAUFFE) puis stabilisation ; une vraie
+// fuite (au-dessus de la borne d'avertissement) est toujours analysée.
+bool aiGasOk(unsigned long now, int gas) {
+  if (gas < 0 || gas < ML_GAZ_PRECHAUFFE) { gasLowMs = now; gasLowSeen = true; return false; }
+  return !gasLowSeen || now - gasLowMs >= AI_STAB_MS || gas >= ML_GAZ_WARN;
+}
+
+void aiJudge(AiCand &best, AiKind kind, float value, float warn, float crit, int sign, bool trend, float slope,
+             float recent) {
+  float m = trend ? aiMinutesTo(value, crit, aiEtaSlope(slope, recent, sign), sign) : NAN;
+  AiLevel lv = AI_OK;
+  if ((!isnan(value) && sign * (value - crit) >= 0) || (!isnan(m) && m <= AI_HORIZON_CRIT)) lv = AI_CRIT;
+  else if ((!isnan(value) && sign * (value - warn) >= 0) || (!isnan(m) && m <= AI_HORIZON_WARN)) lv = AI_WARN;
+  if (lv == AI_OK) return;
+  if (lv > best.level || (lv == best.level && kind < best.kind)) best = {kind, lv, m};
+}
+
+// Une évaluation toutes les 10 s : mesure dans le tampon, tendances, bornes, type ; persistance sur 2 évaluations.
+void edgeAi(unsigned long now) {
+  aiTs[aiHead] = now;
+  aiT[aiHead] = r.temp;
+  aiH[aiHead] = r.hum;
+  aiG[aiHead] = r.gas < 0 ? NAN : (float)r.gas;
+  aiHead = (aiHead + 1) % AI_N;
+  if (aiCount < AI_N) aiCount++;
+
+  float temp = aiLastValid(aiT), hum = aiLastValid(aiH), gaz = aiLastValid(aiG);
+  bool gok = aiGasOk(now, r.gas);
+  float st = aiSlope(aiT), sh = aiSlope(aiH), sg = gok ? aiSlope(aiG) : NAN;
+  float rt = aiSlope(aiT, AI_MIN_POINTS), rh = aiSlope(aiH, AI_MIN_POINTS), rg = gok ? aiSlope(aiG, AI_MIN_POINTS) : NAN;
+  bool tUp = !isnan(st) && st > ML_SLOPE_TEMP;
+  bool gUp = !isnan(sg) && sg > ML_SLOPE_GAZ;
+  bool hUp = !isnan(sh) && sh > ML_SLOPE_HUM;
+  bool hDown = !isnan(sh) && sh < -ML_SLOPE_HUM;
+  // Échauffement corrélé au gaz (signature apprise par le PC) : requalifié en risque d'incendie
+  bool gasDrift = gok && ((!isnan(sg) && sg > AI_FIRE_GAS_RATIO * ML_SLOPE_GAZ)
+                          || (!isnan(gaz) && gaz >= ML_BASE_GAZ + AI_FIRE_GAS_DELTA));
+  bool fire = gasDrift && !isnan(st) && st > AI_FIRE_TEMP_RATIO * ML_SLOPE_TEMP;
+
+  AiCand best = {AI_NONE, AI_OK, NAN};
+  aiJudge(best, gasDrift ? AI_RISQUE_FEU : AI_SURCHAUFFE, temp, ML_TEMP_WARN, ML_TEMP_CRIT, 1, tUp, st, rt);
+  if (gok) aiJudge(best, fire ? AI_RISQUE_FEU : AI_GAZ, gaz, ML_GAZ_WARN, ML_GAZ_CRIT, 1, gUp, sg, rg);
+  if (!tUp) {  // une surchauffe fait varier l'humidité relative : déjà couverte
+    aiJudge(best, AI_HUM_HAUTE, hum, ML_HUM_HIGH_WARN, ML_HUM_HIGH_CRIT, 1, hUp, sh, rh);
+    aiJudge(best, AI_AIR_SEC, hum, ML_HUM_LOW_WARN, ML_HUM_LOW_CRIT, -1, hDown, sh, rh);
+  }
+
+  AiKind prevKind = aiKind;
+  AiLevel prevLevel = aiLevel;
+  aiStreak = best.level != AI_OK ? aiStreak + 1 : 0;
+  if (best.level == AI_OK) { aiKind = AI_NONE; aiLevel = AI_OK; aiMinutes = NAN; }
+  else if (aiStreak >= 2) { aiKind = best.kind; aiLevel = best.level; aiMinutes = best.minutes; }
+  if (aiKind != prevKind || aiLevel != prevLevel) {
+    if (aiLevel == AI_OK) Serial.println("[IA] retour au calme");
+    else {
+      char eta[40] = "", gasTxt[8] = "ignore";
+      if (!isnan(aiMinutes)) snprintf(eta, sizeof eta, " : borne critique dans ~%d min", (int)(aiMinutes + 0.5f));
+      if (gok && !isnan(gaz)) snprintf(gasTxt, sizeof gasTxt, "%d", (int)gaz);
+      Serial.printf("[IA] %s %s%s (T %.1f C %+.2f/min, H %.0f%% %+.2f/min, gaz %s)\n", AI_LABEL[aiKind],
+                    AI_LEVEL_TXT[aiLevel], eta, temp, isnan(st) ? 0.0f : st, hum, isnan(sh) ? 0.0f : sh, gasTxt);
+    }
+  }
+}
 
 // ---------------------------------------------------------------- actionneurs
 void applyLeds() {
@@ -175,14 +312,24 @@ void drawOled(bool online) {
   else oled.println(millis() - bootMs < MQ2_WARMUP_MS ? "Gaz -- (prechauf.)" : "Gaz -- (defaut)");
   oled.printf("PIR %s\n", r.pir ? "MOUVEMENT" : "calme");
   // Dernière ligne : bandeau d'alerte locale inversé (lisible de loin), sinon la dernière commande reçue.
+  // L'IA embarquée passe en premier ; en CRITIQUE, le bandeau clignote.
   const char *banner = nullptr;
-  if (!online && millis() - lastMqttOk > LOCAL_FALLBACK_AFTER_MS) banner = "!! SECOURS (hors ligne)";
+  bool invert = true;
+  char aiBanner[24];
+  if (aiLevel != AI_OK) {
+    if (!isnan(aiMinutes) && aiMinutes >= 1.0f)
+      snprintf(aiBanner, sizeof aiBanner, "!! %s ~%dmin", AI_LABEL[aiKind], (int)min(aiMinutes + 0.5f, 99.0f));
+    else
+      snprintf(aiBanner, sizeof aiBanner, "!! %s", AI_LABEL[aiKind]);
+    banner = aiBanner;
+    if (aiLevel == AI_CRIT && (millis() / 500) % 2) invert = false;
+  } else if (!online && millis() - lastMqttOk > LOCAL_FALLBACK_AFTER_MS) banner = "!! SECOURS (hors ligne)";
   else if (gasRising) banner = "!! GAZ COMBUSTIBLE";
   else if (gasFault || (millis() - bootMs > 10000 && (isnan(r.temp) || isnan(r.hum)))) banner = "!! CAPTEUR HS";
   else if (r.pir) banner = "!! MOUVEMENT";
   if (banner) {
-    oled.fillRect(0, 56, 128, 8, SSD1306_WHITE);
-    oled.setTextColor(SSD1306_BLACK);
+    if (invert) oled.fillRect(0, 56, 128, 8, SSD1306_WHITE);
+    oled.setTextColor(invert ? SSD1306_BLACK : SSD1306_WHITE);
     oled.setCursor(0, 56);
     oled.print(banner);
     oled.setTextColor(SSD1306_WHITE);
@@ -258,6 +405,10 @@ void loop() {
     lastSensor = now;
     readSensors();
   }
+  if (now - lastAi >= AI_STEP_MS) {
+    lastAi = now;
+    edgeAi(now);
+  }
   // Calibration du HC-SR501 pendant sa première minute : faux mouvements ignorés
   // (sinon fausse alerte FUSION au démarrage du boîtier, devant le jury).
   bool pir = (now - bootMs >= PIR_WARMUP_MS) && digitalRead(PIN_PIR) == HIGH;
@@ -270,10 +421,17 @@ void loop() {
   // LED verte : fixe si relié au broker, clignotante sinon (sauf si le dashboard la pilote)
   if (now >= greenManualUntil) greenMode = online ? LED_ON : LED_BLINK;
 
-  // Mode secours : broker perdu depuis 30 s -> le boîtier se défend seul
+  // Mode secours : broker perdu depuis 30 s -> le boîtier se défend seul (IA embarquée comprise)
+  static AiLevel beepedLevel = AI_OK;
+  static unsigned long lastAiBeep = 0;
   if (!online && now - lastMqttOk > LOCAL_FALLBACK_AFTER_MS) {
     bool gasSpike = gasBaseline > 0 && r.gas > gasBaseline * 1.5f + 50;
-    if (r.pir || gasSpike) { redMode = LED_BLINK; if (pirChanged || gasSpike) beep(800); }
+    if (aiLevel > beepedLevel || (aiLevel == AI_CRIT && now - lastAiBeep > 20000)) {
+      beep(aiLevel == AI_CRIT ? 1500 : 400);  // alerte IA nouvelle ou aggravée ; rappel toutes les 20 s si critique
+      lastAiBeep = now;
+    }
+    beepedLevel = aiLevel;
+    if (r.pir || gasSpike || aiLevel != AI_OK) { redMode = LED_BLINK; if (pirChanged || gasSpike) beep(800); }
     else if (now >= redManualUntil) redMode = LED_OFF;
   } else if (online && now >= redManualUntil) {
     redMode = LED_OFF;  // liaison revenue : éteindre ce que le mode secours avait allumé
