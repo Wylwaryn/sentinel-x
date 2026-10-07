@@ -18,8 +18,13 @@
   "enhance": {
     "enabled": true,
     "dark_threshold": 100,
+    "exit_threshold": 120,
     "clahe_clip": 2.0,
-    "target_mean": 115
+    "target_mean": 115,
+    "lum_smooth": 0.3,
+    "gamma_smooth": 0.25,
+    "gamma_min": 0.35,
+    "gamma_max": 3.0
   },
   "model": {
     "weights": "yolov8n.pt",
