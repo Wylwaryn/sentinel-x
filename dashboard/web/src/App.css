@@ -638,3 +638,17 @@ button.badge {
 .intrus-infos span {
   color: var(--texte-secondaire);
 }
+
+.intrus-acquitter {
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 10px 20px;
+  background: var(--critique);
+  color: #ffffff;
+  border: none;
+}
+
+.intrus-note {
+  color: var(--texte-secondaire);
+  font-style: italic;
+}

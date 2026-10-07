@@ -12,7 +12,12 @@ import ImagesReference from "./ImagesReference.jsx";
 import Utilisateurs from "./Utilisateurs.jsx";
 import Intrus from "./Intrus.jsx";
 
-const INTRUS_MS = 15000;       // durée d'affichage de l'overlay « intrus » sans nouvelle détection
+// Une alerte de personne NON reconnue par la vision (déclenche l'overlay « ALERTE INTRUS »).
+// Un membre reconnu (« Personne autorisée : … ») ne correspond pas.
+function estAlerteInconnu(a) {
+  return (a.origine === "VISION_IA" || a.origine === "FUSION")
+    && typeof a.message === "string" && a.message.toLowerCase().includes("non identifi");
+}
 
 const HORS_LIGNE_MS = 30000;   // même seuil que v_dispositif_etat et l'API d'ingestion
 const RECONNEXION_MS = 3000;   // délai avant de retenter le WebSocket
@@ -126,9 +131,7 @@ export default function Dashboard({ utilisateur, onDeconnexion, onSessionExpiree
       if (a.niveau === "CRITIQUE") alarme();
       if (a.type_alerte === "DISPOSITIF_HORS_LIGNE") setVus((v) => ({ ...v, [a.id_dispositif]: 0 }));
       // Personne NON reconnue vue par la vision -> overlay « ALERTE INTRUS » (pas pour un membre reconnu)
-      const inconnu = (a.origine === "VISION_IA" || a.origine === "FUSION")
-        && typeof a.message === "string" && a.message.toLowerCase().includes("non identifi");
-      if (inconnu) {
+      if (estAlerteInconnu(a)) {
         const blob = dernierBlobRef.current;
         setIntrus({
           image: blob ? URL.createObjectURL(blob) : null,  // URL indépendante, révoquée à la fermeture
@@ -201,22 +204,19 @@ export default function Dashboard({ utilisateur, onDeconnexion, onSessionExpiree
     return () => clearInterval(horloge);
   }, []);
 
-  // Overlay intrus : s'efface au bout de INTRUS_MS sans nouvelle détection (le minuteur repart à chaque
-  // nouvel intrus), et on révoque l'URL figée quand l'overlay change ou disparaît.
+  // Overlay intrus : on révoque l'URL figée quand l'overlay change ou disparaît (pas de fuite mémoire).
   useEffect(() => {
-    if (!intrus) return;
-    const minuteur = setTimeout(() => setIntrus(null), INTRUS_MS);
-    return () => {
-      clearTimeout(minuteur);
-      if (intrus.image) URL.revokeObjectURL(intrus.image);
-    };
+    if (!intrus?.image) return;
+    return () => URL.revokeObjectURL(intrus.image);
   }, [intrus]);
 
-  // Overlay intrus : s'efface aussi dès que l'alerte d'origine est acquittée ou résolue
+  // L'overlay NE SE FERME PAS à la main : il reste tant qu'au moins une alerte « personne non
+  // identifiée » est NOUVELLE (non traitée). Il disparaît seulement quand elles ont toutes été
+  // acquittées ou résolues — action réservée aux OPERATEUR/ADMIN. Une reconnaissance ratée ne
+  // peut donc pas être simplement balayée.
   useEffect(() => {
     if (!intrus) return;
-    const a = alertes.find((x) => x.id_alerte === intrus.id_alerte);
-    if (a && a.statut !== "NOUVELLE") setIntrus(null);
+    if (!alertes.some((a) => estAlerteInconnu(a) && a.statut === "NOUVELLE")) setIntrus(null);
   }, [alertes, intrus]);
 
   // ---------- Actions ----------
@@ -229,6 +229,13 @@ export default function Dashboard({ utilisateur, onDeconnexion, onSessionExpiree
     }
     // La mise à jour arrive aussi par NOTIFY ; on recharge au cas où le statut avait déjà changé
     chargerAlertes().catch(() => {});
+  }
+
+  // Acquitte TOUTES les alertes « personne non identifiée » en cours : l'overlay se ferme alors
+  // (plus aucune NOUVELLE), même s'il y en avait plusieurs. Réservé aux OPERATEUR/ADMIN.
+  async function acquitterIntrus() {
+    const cibles = alertes.filter((a) => estAlerteInconnu(a) && a.statut === "NOUVELLE");
+    for (const a of cibles) await changerStatut(a, "acquitter");
   }
 
   async function envoyerCommande(commande, libelle) {
@@ -251,7 +258,7 @@ export default function Dashboard({ utilisateur, onDeconnexion, onSessionExpiree
 
   return (
     <div className="page">
-      <Intrus intrus={intrus} onFermer={() => setIntrus(null)} />
+      <Intrus intrus={intrus} peutAgir={peutAgir} onAcquitter={acquitterIntrus} />
       <header className="entete">
         <h1>SENTINEL-X</h1>
         <div className="badges">
