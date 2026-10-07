@@ -1,7 +1,8 @@
 {
   "device_serie": "SX-G2-01",
   "camera": {
-    "index": 1,
+    "name": "USB Camera",
+    "index": 0,
     "width": 640,
     "height": 480,
     "fps": 30,

@@ -12,10 +12,33 @@ AUTO_EXPOSURE_MANUAL = (0.25, 0)
 AUTO_EXPOSURE_AUTO = (0.75, 1)
 
 
+def resolve_index(cam_cfg):
+    """Index de la webcam. Si `name` est renseigné, on cherche la caméra dont le nom DirectShow
+    contient ce texte (l'ordre DirectShow == l'ordre des index OpenCV CAP_DSHOW) : plus robuste que
+    l'index, qui change selon l'ordre de branchement (la webcam USB peut être 0 ou 1 selon le boot).
+    Repli sur `index` si `name` est absent, introuvable, ou si pygrabber n'est pas là."""
+    name = cam_cfg.get("name")
+    if not name:
+        return cam_cfg["index"]
+    try:
+        from pygrabber.dshow_graph import FilterGraph
+        devices = FilterGraph().get_input_devices()
+    except Exception as exc:
+        print(f"[CAMÉRA] énumération par nom indisponible ({exc}), repli sur l'index {cam_cfg['index']}")
+        return cam_cfg["index"]
+    for i, dev in enumerate(devices):
+        if name.lower() in dev.lower():
+            print(f"[CAMÉRA] « {dev} » trouvée à l'index {i} (nom « {name} »)")
+            return i
+    print(f"[CAMÉRA] aucune caméra nommée « {name} » (vues : {devices}), repli sur l'index {cam_cfg['index']}")
+    return cam_cfg["index"]
+
+
 def open_camera(cam_cfg):
-    cap = cv2.VideoCapture(cam_cfg["index"], cv2.CAP_DSHOW)
+    index = resolve_index(cam_cfg)
+    cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
     if not cap.isOpened():
-        raise RuntimeError(f"Impossible d'ouvrir la webcam {cam_cfg['index']}")
+        raise RuntimeError(f"Impossible d'ouvrir la webcam (index {index}, nom « {cam_cfg.get('name') or '-'} »)")
     if cam_cfg.get("fourcc"):
         # MJPG : la webcam tient 1280x720 et 1920x1080 à 20 img/s (mesuré avec camera_info.py)
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*cam_cfg["fourcc"]))

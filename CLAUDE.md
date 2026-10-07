@@ -604,7 +604,8 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 - Docker publie ses ports avant UFW : une règle UFW ne bloque PAS 8883 ni 443. Côté VM, le filtrage passe par la chaîne `DOCKER-USER` (`server/hardening/firewall.sh`), en plus de la redirection NAT VirtualBox et du pare-feu Windows.
 - Ne jamais recharger un conteneur avec `docker kill -s <signal>` : Docker le marque « arrêté manuellement » et `restart: unless-stopped` ne le relance plus au démarrage. Utiliser `docker compose exec <service> kill -HUP 1`.
 - L'image postgres fait confiance aux connexions locales par défaut. D'où `POSTGRES_INITDB_ARGS=--auth-local=scram-sha-256 --auth-host=scram-sha-256`.
-- La RTX 5050 (Blackwell) exige PyTorch `cu128` ou plus. Webcam USB = index 1 (l'index 0 est la caméra intégrée HP).
+- La RTX 5050 (Blackwell) exige PyTorch `cu128` ou plus.
+- **Webcam : l'index OpenCV est INSTABLE** (selon l'ordre de branchement/boot, la « USB Camera » a été vue index 1 le 6 oct., puis index 0 le 7 oct. — l'intégrée « HP Wide Vision HD » prenant l'autre). La vision choisit donc la caméra **par son nom** (`camera.name` = `"USB Camera"` dans `host/vision/config.json`, via `pygrabber`), avec repli sur `camera.index`. Ne jamais se fier à l'index seul : vérifier le nom retenu dans le log `[CAMÉRA] « … » trouvée à l'index N`.
 
 ## IoT et électronique : où en est la session IoT (mis à jour par elle)
 

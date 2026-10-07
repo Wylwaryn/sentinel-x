@@ -3,6 +3,7 @@
 ultralytics
 lap
 opencv-python
+pygrabber  # sélection de la webcam par nom (Windows/DirectShow) : index USB instable selon le boot
 paho-mqtt>=2.0
 requests
 pytest
