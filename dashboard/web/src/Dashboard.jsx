@@ -10,6 +10,9 @@ import Commandes from "./Commandes.jsx";
 import Journal from "./Journal.jsx";
 import ImagesReference from "./ImagesReference.jsx";
 import Utilisateurs from "./Utilisateurs.jsx";
+import Intrus from "./Intrus.jsx";
+
+const INTRUS_MS = 15000;       // durée d'affichage de l'overlay « intrus » sans nouvelle détection
 
 const HORS_LIGNE_MS = 30000;   // même seuil que v_dispositif_etat et l'API d'ingestion
 const RECONNEXION_MS = 3000;   // délai avant de retenter le WebSocket
@@ -46,6 +49,7 @@ export default function Dashboard({ utilisateur, onDeconnexion, onSessionExpiree
   const [connexion, setConnexion] = useState("connexion"); // "connexion", "ouverte" ou "fermee"
   const [image, setImage] = useState(null);      // URL blob de la dernière image webcam
   const [imageRecue, setImageRecue] = useState(0);
+  const [intrus, setIntrus] = useState(null);    // overlay « ALERTE INTRUS » : {image, message, zone, instant, id_alerte}
   const [journal, setJournal] = useState([]);
   const [maintenant, setMaintenant] = useState(Date.now());
   // ADMIN : compte à photographier (après création ou bouton « Photos ») et rechargement des listes
@@ -57,6 +61,9 @@ export default function Dashboard({ utilisateur, onDeconnexion, onSessionExpiree
   const periodeRef = useRef(periode);
   selectionRef.current = selection;
   periodeRef.current = periode;
+  // Dernier JPEG brut de la webcam : sert à figer l'image de l'overlay « intrus ». On garde le Blob
+  // (pas l'URL d'affichage, qui est révoquée à chaque nouvelle image) pour en tirer une URL indépendante.
+  const dernierBlobRef = useRef(null);
 
   function noter(texte, alerte = false) {
     const h = new Date().toLocaleTimeString("fr-FR", { timeZone: "Europe/Paris" });
@@ -118,6 +125,17 @@ export default function Dashboard({ utilisateur, onDeconnexion, onSessionExpiree
       noter(`${a.niveau} · ${TYPES[a.type_alerte] ?? a.type_alerte}${a.message ? " · " + a.message : ""}`, a.niveau !== "INFORMATION");
       if (a.niveau === "CRITIQUE") alarme();
       if (a.type_alerte === "DISPOSITIF_HORS_LIGNE") setVus((v) => ({ ...v, [a.id_dispositif]: 0 }));
+      // Personne NON reconnue vue par la vision -> overlay « ALERTE INTRUS » (pas pour un membre reconnu)
+      const inconnu = (a.origine === "VISION_IA" || a.origine === "FUSION")
+        && typeof a.message === "string" && a.message.toLowerCase().includes("non identifi");
+      if (inconnu) {
+        const blob = dernierBlobRef.current;
+        setIntrus({
+          image: blob ? URL.createObjectURL(blob) : null,  // URL indépendante, révoquée à la fermeture
+          message: a.message, zone: a.zone, instant: a.instant, id_alerte: a.id_alerte,
+        });
+        alarme();
+      }
     }
     // …puis la ligne complète (capture, score) depuis la vue
     chargerAlertes().catch(() => {});
@@ -140,7 +158,9 @@ export default function Dashboard({ utilisateur, onDeconnexion, onSessionExpiree
       ws.onmessage = (e) => {
         if (e.data instanceof Blob) {
           // Image JPEG de la webcam : on libère la précédente pour ne pas saturer la mémoire
-          const url = URL.createObjectURL(new Blob([e.data], { type: "image/jpeg" }));
+          const blob = new Blob([e.data], { type: "image/jpeg" });
+          dernierBlobRef.current = blob;  // gardé pour figer l'overlay « intrus »
+          const url = URL.createObjectURL(blob);
           if (derniereImage) URL.revokeObjectURL(derniereImage);
           derniereImage = url;
           setImage(url);
@@ -181,6 +201,24 @@ export default function Dashboard({ utilisateur, onDeconnexion, onSessionExpiree
     return () => clearInterval(horloge);
   }, []);
 
+  // Overlay intrus : s'efface au bout de INTRUS_MS sans nouvelle détection (le minuteur repart à chaque
+  // nouvel intrus), et on révoque l'URL figée quand l'overlay change ou disparaît.
+  useEffect(() => {
+    if (!intrus) return;
+    const minuteur = setTimeout(() => setIntrus(null), INTRUS_MS);
+    return () => {
+      clearTimeout(minuteur);
+      if (intrus.image) URL.revokeObjectURL(intrus.image);
+    };
+  }, [intrus]);
+
+  // Overlay intrus : s'efface aussi dès que l'alerte d'origine est acquittée ou résolue
+  useEffect(() => {
+    if (!intrus) return;
+    const a = alertes.find((x) => x.id_alerte === intrus.id_alerte);
+    if (a && a.statut !== "NOUVELLE") setIntrus(null);
+  }, [alertes, intrus]);
+
   // ---------- Actions ----------
   async function changerStatut(alerte, action) {
     try {
@@ -213,6 +251,7 @@ export default function Dashboard({ utilisateur, onDeconnexion, onSessionExpiree
 
   return (
     <div className="page">
+      <Intrus intrus={intrus} onFermer={() => setIntrus(null)} />
       <header className="entete">
         <h1>SENTINEL-X</h1>
         <div className="badges">
