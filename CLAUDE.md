@@ -699,9 +699,11 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 ## Durcissement : calendrier décidé (VM + Windows)
 
 **Mercredi soir (les deux pare-feu ensemble, pour détecter une casse avant le pentest) :**
-- [ ] **Pare-feu Windows : `host/hardening/windows_firewall.ps1 -Apply`** (PowerShell administrateur).
-  - Sans option : simulation. `-Apply` : sauvegarde complète, puis désactivation des règles entrantes « Autoriser » du profil Public (109 aujourd'hui : jeux, adb, Node, Docker, diffusion sans fil…), sauf la gestion réseau de base de Windows.
-  - Crée 5 règles **limitées à `192.168.137.0/24`** : 8883, 443, DHCP 67, DNS 53 (UDP et TCP). `-Restore` remet tout comme avant.
+- [x] **Pare-feu Windows : `host/hardening/windows_firewall.ps1 -Apply`** (fait le 7 oct. au soir par la session Windows : 112 règles désactivées, 7 règles Sentinel-X créées).
+  - Sans option : simulation. `-Apply` : sauvegarde complète, puis désactivation des règles entrantes « Autoriser » du profil Public, sauf la gestion réseau de base de Windows.
+  - Crée 7 règles **limitées à `192.168.137.0/24`** : 8883 et 443 pour **`VirtualBoxVM.exe` ET `VBoxHeadless.exe`**, DHCP 67, DNS 53 (UDP et TCP). `-Restore` remet tout comme avant.
+  - **Correction avant application** : les règles 8883/443 n'autorisaient que `VirtualBoxVM.exe`. La VM tourne en headless (`VBoxHeadless.exe` écoute sur 8883/443) : l'application aurait coupé l'ESP et le dashboard depuis le Wi-Fi.
+  - Vérifié après application : ESP toujours connecté (12 mesures/min depuis `192.168.137.49`), dashboard `https://192.168.137.1` 200, ingestion 8443 200, `ssh sentinel-vm` OK. **Reste à tester par l'utilisateur** : un téléphone sur le point d'accès (DHCP) qui ouvre le dashboard.
 - [x] **Pare-feu de la VM : `sudo hardening/firewall.sh --apply`** (fait le 7 oct. au soir, 0 blocage légitime) (UFW en refus par défaut, SSH depuis `10.0.2.2` seulement, ports Docker en liste blanche dans `DOCKER-USER`). `--restore` remet tout comme avant.
 - [ ] Vérifier ensuite : DHCP sur le point d'accès, ESP connecté sur 8883, vision et maintenance prédictive connectées, alerte acceptée sur 8443, dashboard joignable, `ssh sentinel-vm` OK, `sudo hardening/verify.sh`, et rien de légitime dans `journalctl -k | grep SENTINEL`.
 
