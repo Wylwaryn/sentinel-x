@@ -25,9 +25,9 @@
       "critique_bas": 20
     },
     "gaz": {
-      "reference_defaut": 67,
-      "avertissement_delta": 30,
-      "critique_delta": 80
+      "reference_defaut": 106,
+      "avertissement_delta": 80,
+      "critique_delta": 180
     }
   },
   "model": {

@@ -113,7 +113,7 @@ restant et **dire quoi faire** pour régler le problème avant qu'il n'arrive.
 | Température | **35 °C** | **45 °C** | +6 °C au-dessus du maximum normal observé ; 45 °C : risque matériel et départ de feu |
 | Humidité haute | **80 %** | **90 %** | au-dessus du normal (≤ 74 %) ; risque de condensation sur l'électronique |
 | Humidité basse | **30 %** | **20 %** | air sec : risque de décharges électrostatiques |
-| Gaz (MQ-2) | **base + 30** (97) | **base + 80** (147) | MQ-2 non étalonné en ppm : bornes **relatives** à la ligne de base apprise |
+| Gaz (MQ-2) | **base + 80** (179) | **base + 180** (279) | MQ-2 non étalonné en ppm : bornes **relatives** à la ligne de base apprise (≈ 99 une fois le capteur branché et chauffé) |
 
 Les bornes jouent trois rôles : la **prévision** chiffre le délai avant la borne critique ; une borne
 **franchie** déclenche une alerte même si le modèle hésite (**filet de sécurité déterministe**, actif

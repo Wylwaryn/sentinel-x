@@ -281,6 +281,8 @@ def print_model_summary(model, cfg):
 
 
 def cmd_train(args, cfg):
+    if getattr(args, "purge", False):
+        cfg = dict(cfg, model=dict(cfg["model"], purge=True))
     data = BASE / args.data
     sessions = real_sessions(data) if data.exists() else []
     model, clean, n_real, n_synth, n_inc = train_model(cfg, sessions, synthetic=args.synthetic)
@@ -604,6 +606,7 @@ def main():
     p = sub.add_parser("train")
     p.add_argument("--data", default="data/telemetry.csv")
     p.add_argument("--synthetic", action="store_true")
+    p.add_argument("--purge", action="store_true", help="retire les épisodes de test (pic de gaz...) du normal")
     p = sub.add_parser("evaluate")
     p.add_argument("--data", default="data/telemetry.csv")
     p.add_argument("--series", type=int, default=12, help="incidents rejoués par type")
