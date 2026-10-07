@@ -4,13 +4,24 @@ import { dateHeure, ORIGINES, TYPES } from "./format.js";
 const CLASSE = { CRITIQUE: "niveau-critique", AVERTISSEMENT: "niveau-attention", INFORMATION: "niveau-info" };
 
 // Alertes physiques ouvertes (v_alerte_supervision : jamais de RESEAU_IA)
-export default function Alertes({ alertes, dispositifs, peutAgir, onAction }) {
+export default function Alertes({ alertes, dispositifs, peutAgir, onAction, onToutAcquitter, onToutResoudre }) {
   const [capture, setCapture] = useState(null); // id de l'alerte dont on montre la capture
   const nomDispositif = (id) => dispositifs.find((d) => d.id_dispositif === id)?.nom ?? `ESP ${id}`;
+  const nouvelles = alertes.filter((a) => a.statut === "NOUVELLE").length;
 
   return (
     <section className="panneau">
-      <h2>Alertes ouvertes ({alertes.length})</h2>
+      <div className="alerte-entete">
+        <h2>Alertes ouvertes ({alertes.length})</h2>
+        {peutAgir && alertes.length > 0 && (
+          <div className="alerte-groupe">
+            <button className="bouton" onClick={onToutAcquitter} disabled={nouvelles === 0}>
+              Tout acquitter{nouvelles ? ` (${nouvelles})` : ""}
+            </button>
+            <button className="bouton" onClick={onToutResoudre}>Tout résoudre</button>
+          </div>
+        )}
+      </div>
       {alertes.length === 0 && <p className="vide">Aucune alerte ouverte</p>}
       <ul className="liste">
         {alertes.map((a) => (

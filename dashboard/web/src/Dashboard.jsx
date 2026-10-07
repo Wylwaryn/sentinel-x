@@ -259,6 +259,15 @@ export default function Dashboard({ utilisateur, onDeconnexion, onSessionExpiree
     for (const a of cibles) await changerStatut(a, "acquitter");
   }
 
+  // Actions groupées : avec le flux continu d'alertes, traiter d'un coup toutes les alertes ouvertes.
+  async function toutActionner(action) {
+    const cibles = alertes.filter((a) => (action === "acquitter" ? a.statut === "NOUVELLE" : a.statut !== "RESOLUE"));
+    if (!cibles.length) return;
+    await Promise.allSettled(cibles.map((a) => api(`/alertes/${a.id_alerte}/${action}`, { methode: "POST" })));
+    noter(`${cibles.length} alerte(s) ${action === "acquitter" ? "acquittée(s)" : "résolue(s)"}`);
+    chargerAlertes().catch(() => {});
+  }
+
   async function envoyerCommande(commande, libelle) {
     try {
       await api(`/dispositifs/${selection}/commandes`, { methode: "POST", corps: { commande } });
@@ -318,7 +327,8 @@ export default function Dashboard({ utilisateur, onDeconnexion, onSessionExpiree
       <div className="disposition">
         <aside className="colonne">
           <Dispositifs dispositifs={dispositifs} selection={selection} onSelection={setSelection} enLigne={enLigne} />
-          <Alertes alertes={alertes} dispositifs={dispositifs} peutAgir={peutAgir} onAction={changerStatut} />
+          <Alertes alertes={alertes} dispositifs={dispositifs} peutAgir={peutAgir} onAction={changerStatut}
+            onToutAcquitter={() => toutActionner("acquitter")} onToutResoudre={() => toutActionner("resoudre")} />
         </aside>
 
         <main className="colonne">

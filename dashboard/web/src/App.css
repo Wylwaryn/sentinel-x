@@ -712,3 +712,17 @@ button.badge {
 .verrou-infos span {
   color: var(--texte-secondaire);
 }
+
+/* En-tête de la liste d'alertes : titre + actions groupées */
+.alerte-entete {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.alerte-groupe {
+  display: flex;
+  gap: 6px;
+}
