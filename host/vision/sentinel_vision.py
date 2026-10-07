@@ -84,6 +84,18 @@ def draw(frame, zones, persons, analyzer, ts, hud, recent_alerts, names=None):
         cv2.putText(frame, txt, (10, h - 12 - 24 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.6, LEVEL_COLORS[alert.level], 2)
 
 
+def open_camera_waiting(cam_cfg):
+    """Ouvre la caméra en réessayant toutes les 2 s si elle est absente (webcam branchée plus tard,
+    ou prise par un autre programme). Ne rend la main qu'une fois la caméra disponible : le service
+    ne plante donc jamais, même démarré sans webcam."""
+    while True:
+        try:
+            return open_camera(cam_cfg)
+        except RuntimeError as exc:
+            print(f"[CAMÉRA] {exc} — nouvelle tentative dans 2 s (branchez la webcam)")
+            time.sleep(2)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default=str(Path(__file__).with_name("config.json")))
@@ -101,7 +113,7 @@ def main():
     print(f"Inférence sur : {torch.cuda.get_device_name(0) if device == 0 else 'CPU'}")
 
     model = YOLO(model_cfg["weights"])
-    cap = open_camera(config["camera"])
+    cap = open_camera_waiting(config["camera"])
     gate = MotionGate(config["motion"])
     enhancer = LowLightEnhancer(config.get("enhance", {"enabled": False, "clahe_clip": 2.0}))
     analyzer = BehaviourAnalyzer(config["zones"], config["behaviour"])
@@ -141,14 +153,10 @@ def main():
             if not ok:
                 # Coupure USB ou caméra prise par un autre programme : on ne s'arrête JAMAIS,
                 # on rouvre la caméra toutes les 2 s jusqu'à ce qu'elle revienne.
-                print("[CAMÉRA] plus d'image : nouvelle tentative dans 2 s")
+                print("[CAMÉRA] plus d'image : réouverture")
                 cap.release()
-                time.sleep(2)
-                try:
-                    cap = open_camera(config["camera"])
-                    print("[CAMÉRA] rouverte")
-                except RuntimeError as exc:
-                    print(f"[CAMÉRA] {exc}")
+                cap = open_camera_waiting(config["camera"])
+                print("[CAMÉRA] rouverte")
                 continue
             frame = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_AREA)
             frame = enhancer(frame)  # faible lumière : image rehaussée pour l'IA, les visages et la vidéo
