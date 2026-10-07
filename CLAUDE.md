@@ -505,7 +505,11 @@ Côté API, rien à faire : le jeton `INGEST_TOKEN_CAPTEURS` (origine `CAPTEURS_
 - **Mesures sur des données synthétiques jamais vues** : détection 90 %, typage 97,5 %, moins d'une fausse alerte par heure. Surchauffe à +1 °C/min : alerte à +30 s, délai annoncé 20,9 min pour 19,0 min réelles.
 - Envoi vers l'API : jeton `SENTINEL_CAPTEURS_TOKEN`, `source=CAPTEURS_IA`, `type=ANOMALIE_ENVIRONNEMENTALE`, `serie`, `score`, `message`, `detail` (sous-type, prévision, épisode).
 - ✅ **Raccordé** : mot de passe `capteurs` récupéré seul (`SENTINEL_CAPTEURS_USER` / `SENTINEL_CAPTEURS_PASS`). Contre le vrai broker : TLS OK, télémétrie reçue, publication refusée. Contre l'API : 201 en `CAPTEURS_IA` sur `SX-G2-01`, 403 si le jeton tente `VISION_IA`. Ligne de test supprimée. Merci à la session VM pour l'étape 7.
-- Reste : le modèle est amorcé sur du synthétique. Le ré-entraîner sur la télémétrie réelle dès que l'ESP émet (`record --minutes 30`, puis `train`).
+- ✅ **Révisé le 7 oct. : entraîné sur la télémétrie RÉELLE** (5 039 mesures exportées de la base). Détail et chiffres : `docs/fiche-ia.md` §3.
+  - **Bornes d'alerte** (`host/predictive/config.json` → `limites`, `bounds.py`) : température 35 / 45 °C, humidité 80 / 90 % et 30 / 20 %, gaz base + 30 / + 80 (relatif à la ligne de base apprise, aujourd'hui 67 → 97 / 147). L'ancienne limite gaz 700 est abandonnée (le MQ-2 réel tourne autour de 67). Une borne franchie alerte même si le modèle hésite, dès l'allumage.
+  - **Types** : `SURCHAUFFE`, `CORRELATION_TEMP_GAZ` (risque d'incendie), `FUITE_GAZ` (qualité de l'air), `HUMIDITE_ELEVEE`, `HUMIDITE_BASSE`, `CAPTEUR_DEFAILLANT`. **→ Dashboard : chaque alerte `CAPTEURS_IA` porte `detail.action`** (ce qu'il faut faire pour régler le problème avant qu'il n'arrive) et `detail.borne_franchie` ; le texte est aussi à la fin de `message`. À afficher si tu veux le mettre en avant.
+  - **Préchauffe du MQ-2** détectée (à froid ~16 min, base qui dérive d'un jour à l'autre) : gaz exclu de l'analyse le temps de se stabiliser, borne gaz toujours active.
+  - Évaluation (entraîné le 6, testé le 7) : 0 fausse alerte en 1,6 h, allumages à froid compris ; type juste 96 % ; surchauffe +1 °C/min signalée 15 min avant 45 °C. Ré-entraîner : `python sentinel_predictive.py train` (après export de la base) ; `evaluate` pour les chiffres.
 
 **Firmware ESP8266 `firmware/` (6 oct., PlatformIO, compile : RAM 37 %, flash 40 %)** :
 - Fait par la session Windows, compilé et téléversé depuis le PC hôte (`.venv\Scripts\pio.exe run -t upload`).
