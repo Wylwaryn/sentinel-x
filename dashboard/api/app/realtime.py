@@ -156,7 +156,14 @@ class MqttLink:
                              self.settings.mqtt_host, self.settings.mqtt_port, VIDEO_TOPIC)
                     async for message in client.messages:
                         payload = message.payload
-                        # Seulement des JPEG (octets magiques) de taille raisonnable.
+                        # Battement de présence de la vision (JSON) : pilote le verrou du PC hôte.
+                        if str(message.topic).endswith("/presence"):
+                            try:
+                                self.hub.texte({"type": "presence", "data": json.loads(payload)})
+                            except (ValueError, TypeError):
+                                pass
+                            continue
+                        # Sinon : seulement des JPEG (octets magiques) de taille raisonnable.
                         if (isinstance(payload, (bytes, bytearray)) and len(payload) <= MAX_JPEG
                                 and payload.startswith(b"\xff\xd8\xff")):
                             self.hub.video(bytes(payload))

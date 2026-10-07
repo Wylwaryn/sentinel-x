@@ -37,6 +37,8 @@ class MqttLink:
         self.last_pir = None
         self._last_frame = 0.0
         self._frame_interval = 1.0 / mqtt_cfg["video_fps"]
+        self._last_presence = 0.0
+        self._presence_interval = 1.0   # battement de présence : 1/s
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=mqtt_cfg["client_id"])
         self.client.tls_set(ca_certs=os.path.join(base_dir, mqtt_cfg["ca_cert"]))
         user = os.environ.get(mqtt_cfg["username_env"])
@@ -69,6 +71,20 @@ class MqttLink:
         self._last_frame = now
         # QoS 0, non retenu : une image perdue est remplacée 200 ms plus tard
         self.client.publish(self.cfg["video_topic"], buf.tobytes(), qos=0, retain=False)
+        return True
+
+    def publish_presence(self, recognized):
+        """Battement ~1/s : liste des personnes autorisées reconnues DEVANT la caméra en ce moment
+        (`[{"id", "nom"}, ...]`), publiée en JSON sur sentinel/video/presence. Le dashboard l'utilise
+        pour le verrou du PC hôte (déverrouille quand le titulaire est reconnu). Message RETENU :
+        un dashboard qui (re)connecte reçoit tout de suite le dernier état. L'ACL autorise déjà la
+        vision à écrire sous sentinel/video/# et le dashboard à le lire."""
+        now = time.monotonic()
+        if not self.connected or now - self._last_presence < self._presence_interval:
+            return False
+        self._last_presence = now
+        topic = self.cfg.get("presence_topic", "sentinel/video/presence")
+        self.client.publish(topic, json.dumps({"reconnus": recognized}), qos=0, retain=True)
         return True
 
     def _on_connect(self, client, userdata, flags, reason_code, properties):

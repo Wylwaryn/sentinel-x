@@ -202,6 +202,14 @@ def main():
             draw(frame, analyzer.zones, persons, analyzer, ts, hud, recent_alerts, names)
             if link:
                 link.publish_frame(frame)  # flux annoté pour le dashboard
+                # Battement de présence pour le verrou du dashboard : personnes autorisées visibles
+                if tracker:
+                    reconnus = []
+                    for p in persons:
+                        ident = tracker.identity(p["track_id"])  # (id, nom, rôle, score) si reconnu
+                        if ident:
+                            reconnus.append({"id": ident[0], "nom": ident[1]})
+                    link.publish_presence(reconnus)
 
             if not args.headless:
                 cv2.imshow("Sentinel-X vision", frame)

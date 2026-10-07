@@ -14,22 +14,12 @@ import Intrus from "./Intrus.jsx";
 import Verrou from "./Verrou.jsx";
 
 const estVision = (a) => a.origine === "VISION_IA" || a.origine === "FUSION";
+const PRESENCE_GRACE_MS = 4000;  // verrou : on reste déverrouillé jusqu'à 4 s après la dernière reconnaissance
 
 // Une alerte de personne NON reconnue par la vision (déclenche l'overlay « ALERTE INTRUS »).
 // Un membre reconnu (« Personne autorisée : … ») ne correspond pas.
 function estAlerteInconnu(a) {
   return estVision(a) && typeof a.message === "string" && a.message.toLowerCase().includes("non identifi");
-}
-
-// Alerte « Personne autorisée : <nom> (<rôle>) » émise par la vision pour un membre reconnu.
-function estAlerteAutorisee(a) {
-  return estVision(a) && typeof a.message === "string" && a.message.toLowerCase().includes("personne autorisée");
-}
-
-// Le membre reconnu est-il le titulaire du compte connecté ? (comparaison sur le nom présent
-// dans le message). Sert au verrou du PC hôte : déverrouille seulement pour le bon visage.
-function estMoiReconnu(a, nom) {
-  return estAlerteAutorisee(a) && !!nom && a.message.toLowerCase().includes(nom.toLowerCase());
 }
 
 const HORS_LIGNE_MS = 30000;   // même seuil que v_dispositif_etat et l'API d'ingestion
@@ -70,6 +60,7 @@ export default function Dashboard({ utilisateur, onDeconnexion, onSessionExpiree
   const [intrus, setIntrus] = useState(null);    // overlay « ALERTE INTRUS » : {image, message, zone, instant, id_alerte}
   // Verrou du PC hôte : false tant que la vision n'a pas reconnu le titulaire du compte connecté.
   const [reconnuMoi, setReconnuMoi] = useState(false);
+  const vuMoiRef = useRef(0);   // dernier instant où le battement de présence m'a reconnu
   const [journal, setJournal] = useState([]);
   const [maintenant, setMaintenant] = useState(Date.now());
   // ADMIN : compte à photographier (après création ou bouton « Photos ») et rechargement des listes
@@ -154,13 +145,18 @@ export default function Dashboard({ utilisateur, onDeconnexion, onSessionExpiree
         });
         alarme();
       }
-      // Verrou du PC hôte : mon visage reconnu -> déverrouille ; un inconnu ou un AUTRE membre
-      // devant la caméra -> reverrouille.
-      if (estMoiReconnu(a, utilisateur.nom)) setReconnuMoi(true);
-      else if (estAlerteInconnu(a) || estAlerteAutorisee(a)) setReconnuMoi(false);
     }
     // …puis la ligne complète (capture, score) depuis la vue
     chargerAlertes().catch(() => {});
+  }
+
+  // Battement de présence de la vision (~1/s) : qui est reconnu DEVANT la caméra en ce moment.
+  // Sert au verrou du PC hôte : on note l'instant où le titulaire du compte est reconnu.
+  function recevoirPresence(data) {
+    const moi = (data.reconnus || []).some(
+      (p) => (utilisateur.id && p.id === utilisateur.id)
+        || (p.nom && utilisateur.nom && p.nom.toLowerCase() === utilisateur.nom.toLowerCase()));
+    if (moi) vuMoiRef.current = Date.now();
   }
 
   useEffect(() => {
@@ -197,6 +193,7 @@ export default function Dashboard({ utilisateur, onDeconnexion, onSessionExpiree
         }
         if (msg.type === "mesure") recevoirMesure(msg.data);
         else if (msg.type === "alerte") recevoirAlerte(msg.data);
+        else if (msg.type === "presence") recevoirPresence(msg.data);
         else if (msg.type === "resync") toutRecharger();
       };
       ws.onclose = (e) => {
@@ -217,22 +214,15 @@ export default function Dashboard({ utilisateur, onDeconnexion, onSessionExpiree
     };
   }, []);
 
-  // Horloge : recalcule chaque seconde l'état en ligne / hors ligne (aucune requête)
+  // Horloge : recalcule chaque seconde l'état en ligne / hors ligne, et l'état du verrou du PC hôte
+  // (déverrouillé tant que la présence m'a reconnu il y a moins de PRESENCE_GRACE_MS). Aucune requête.
   useEffect(() => {
-    const horloge = setInterval(() => setMaintenant(Date.now()), 1000);
+    const horloge = setInterval(() => {
+      const now = Date.now();
+      setMaintenant(now);
+      setReconnuMoi(now - vuMoiRef.current < PRESENCE_GRACE_MS);
+    }, 1000);
     return () => clearInterval(horloge);
-  }, []);
-
-  // Verrou du PC hôte — état initial (démarrage à froid) : si la vision m'a reconnu récemment
-  // (alerte encore ouverte), on démarre déverrouillé ; sinon verrouillé jusqu'à reconnaissance.
-  useEffect(() => {
-    if (!utilisateur.poste_hote) return;
-    api("/alertes")
-      .then((liste) => {
-        const dernier = liste.filter(estVision).sort((a, b) => (b.instant > a.instant ? 1 : -1))[0];
-        if (dernier) setReconnuMoi(estMoiReconnu(dernier, utilisateur.nom));
-      })
-      .catch(() => {});
   }, []);
 
   // Overlay intrus : on révoque l'URL figée quand l'overlay change ou disparaît (pas de fuite mémoire).
