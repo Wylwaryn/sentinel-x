@@ -204,9 +204,10 @@ def main():
                 link.publish_frame(frame)  # flux annoté pour le dashboard
                 # Battement de présence pour le verrou du dashboard : personnes autorisées visibles
                 if tracker:
+                    valid_s = faces_cfg.get("presence_valid_s", 3.0)
                     reconnus = []
                     for p in persons:
-                        ident = tracker.identity(p["track_id"])  # (id, nom, rôle, score) si reconnu
+                        ident = tracker.recognized(p["track_id"], ts, valid_s)  # reconfirmé récemment ?
                         if ident:
                             reconnus.append({"id": ident[0], "nom": ident[1]})
                     link.publish_presence(reconnus)

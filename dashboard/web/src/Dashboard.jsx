@@ -14,7 +14,7 @@ import Intrus from "./Intrus.jsx";
 import Verrou from "./Verrou.jsx";
 
 const estVision = (a) => a.origine === "VISION_IA" || a.origine === "FUSION";
-const PRESENCE_GRACE_MS = 4000;  // verrou : on reste déverrouillé jusqu'à 4 s après la dernière reconnaissance
+const PRESENCE_GRACE_MS = 2500;  // verrou : on reste déverrouillé jusqu'à 2,5 s après la dernière reconnaissance
 
 // Une alerte de personne NON reconnue par la vision (déclenche l'overlay « ALERTE INTRUS »).
 // Un membre reconnu (« Personne autorisée : … ») ne correspond pas.

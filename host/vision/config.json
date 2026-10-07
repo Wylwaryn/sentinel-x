@@ -111,7 +111,8 @@
     "threshold": 0.4,
     "confirm_hits": 2,
     "retry_s": 0.4,
-    "reverify_s": 5.0,
+    "reverify_s": 1.5,
+    "presence_valid_s": 3.0,
     "grace_s": 2.0,
     "min_face_px": 40,
     "sync": {

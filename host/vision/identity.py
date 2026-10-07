@@ -88,6 +88,15 @@ class IdentityTracker:
         st = self.tracks.get(tid)
         return st.identity if st else None
 
+    def recognized(self, tid, ts, max_age):
+        """Identité d'une piste SEULEMENT si elle a été reconfirmée depuis moins de max_age.
+        Sert au battement de présence (verrou) : quelqu'un qui prend la place d'un membre n'hérite
+        pas de son statut, car l'étiquette expire faute de reconfirmation du visage."""
+        st = self.tracks.get(tid)
+        if st and st.identity is not None and ts - st.verified_at <= max_age:
+            return st.identity
+        return None
+
 
 class EventGate:
     """Retient les alertes des personnes en cours d'identification, puis les transforme ou les libère."""
