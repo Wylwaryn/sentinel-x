@@ -5,9 +5,27 @@
 $ErrorActionPreference = "Stop"
 $env:PYTHONIOENCODING = "utf-8"
 
+# Recupere une variable d'env UTILISATEUR. En session elevee, l'admin (marci) n'a pas les variables
+# de ton compte standard : on va alors la chercher dans la ruche de registre de l'utilisateur
+# interactif, qui est chargee tant que ta session est ouverte (HKEY_USERS\<ton SID>\Environment).
+# Rien n'est ecrit en clair ni passe sur une ligne de commande.
+function Get-UserVar($name) {
+    $v = [Environment]::GetEnvironmentVariable($name, "User")
+    if ($v) { return $v }
+    foreach ($hive in Get-ChildItem Registry::HKEY_USERS -ErrorAction SilentlyContinue) {
+        $key = "Registry::$($hive.Name)\Environment"
+        if (Test-Path $key) {
+            $val = (Get-ItemProperty $key -Name $name -ErrorAction SilentlyContinue).$name
+            if ($val) { return $val }
+        }
+    }
+    return $null
+}
+
 foreach ($v in @("SENTINEL_IDS_TOKEN")) {
-    $val = [Environment]::GetEnvironmentVariable($v, "User")
+    $val = Get-UserVar $v
     if ($val) { Set-Item "Env:$v" $val }
+    else { Write-Host "ATTENTION : $v introuvable (ta session utilisateur est-elle ouverte ?)" -ForegroundColor Red }
 }
 
 $ids  = $PSScriptRoot                                   # ...\host\ids

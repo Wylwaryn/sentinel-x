@@ -59,7 +59,11 @@ class FirewallBlocker:
                    "dir=in", "action=block", f"remoteip={ip}"]
             if ports:  # ne couper que les vrais services ; le honeypot (autres ports) reste joignable
                 cmd += ["protocol=TCP", "localport=" + ",".join(str(p) for p in ports)]
-            self.runner(cmd, check=True, capture_output=True)
+            try:
+                self.runner(cmd, check=True, capture_output=True)
+            except Exception as exc:  # une regle refusee (droits, syntaxe) ne doit PAS tuer l'IDS
+                print(f"[IDS] regle pare-feu non appliquee pour {ip} : {exc}")
+                return "regle_echec"
             self.blocked[ip] = time.monotonic() + self.ttl_s
             # Démon : n'empêche pas l'arrêt du programme ; unblock_all() nettoie les règles
             timer = threading.Timer(self.ttl_s, self.unblock, args=(ip,))
