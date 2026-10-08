@@ -112,6 +112,8 @@ elle est **vue et journalisée** avant d'être jetée, même si rien ne la laiss
 **Capture sans mode promiscuous.** Mettre la carte Wi-Fi en promiscuous pendant qu'elle sert de point
 d'accès faisait planter le pilote Wi-Fi de Windows (carte perdue jusqu'au redémarrage, deux fois).
 C'est inutile ici : l'hôte est la passerelle du point d'accès, tout le trafic des clients le traverse.
+Les redémarrages forcés qui en ont découlé ont fini par faire perdre les journaux du broker MQTT
+pendant le pentest : voir [retour-experience.md](retour-experience.md).
 
 **Alertes réelles du pentest (8 oct.), et comment les lire.**
 
