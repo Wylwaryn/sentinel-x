@@ -13,10 +13,10 @@ SPOOL="$STATE/spool"
 GNUPG="$STATE/gnupg"
 RECIP=sentinel-honeypot
 
-UNITS=(honeypot-mysql honeypot-http honeypot-rotate)
+UNITS=(honeypot-mysql honeypot-http honeypot-mqtt honeypot-rotate)
 
 if [[ "${1:-}" == "--remove" ]]; then
-  systemctl disable --now honeypot-mysql honeypot-http honeypot-rotate.timer 2>/dev/null || true
+  systemctl disable --now honeypot-mysql honeypot-http honeypot-mqtt honeypot-rotate.timer 2>/dev/null || true
   for u in "${UNITS[@]}"; do rm -f "/etc/systemd/system/$u.service"; done
   rm -f /etc/systemd/system/honeypot-rotate.timer
   systemctl daemon-reload
@@ -34,7 +34,7 @@ id "$USER_HP" &>/dev/null || useradd --system --no-create-home --shell /usr/sbin
 # 2. Code dans /opt (lisible par tous : l'utilisateur 'honeypot' ne peut pas lire dans ton home,
 #    donc on copie AUSSI la cle publique ici, depuis ou il pourra l'importer).
 install -d -m 755 "$DEST"
-install -m 644 "$SRC/common.py" "$SRC/tcp_tarpit.py" "$SRC/http_honeypot.py" "$DEST/"
+install -m 644 "$SRC/common.py" "$SRC/tcp_tarpit.py" "$SRC/http_honeypot.py" "$SRC/mqtt_honeypot.py" "$DEST/"
 install -m 755 "$SRC/rotate.sh" "$DEST/"
 [[ -f "$SRC/host-pub.asc" ]] && install -m 644 "$SRC/host-pub.asc" "$DEST/"
 
@@ -54,12 +54,12 @@ else
 fi
 
 # 5. Services + timer : on remplace __LOGDIR__ par le chemin du log en RAM.
-for unit in honeypot-mysql honeypot-http honeypot-rotate; do
+for unit in honeypot-mysql honeypot-http honeypot-mqtt honeypot-rotate; do
   sed "s#__LOGDIR__#$LOG_DIR#g" "$SRC/systemd/$unit.service" > "/etc/systemd/system/$unit.service"
 done
 cp "$SRC/systemd/honeypot-rotate.timer" /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now honeypot-mysql honeypot-http honeypot-rotate.timer
+systemctl enable --now honeypot-mysql honeypot-http honeypot-mqtt honeypot-rotate.timer
 
 echo
 echo "Installe."

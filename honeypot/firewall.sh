@@ -6,7 +6,7 @@
 set -euo pipefail
 
 MGMT_CIDR="${MGMT_CIDR:-}"            # d'ou TU administres en SSH (ex. l'IP/sous-reseau de ton hote)
-HONEYPOT_PORTS=(3306 8080)           # les ports du leurre, ouverts a tout le Wi-Fi de la table
+HONEYPOT_PORTS=(3306 8080 1883)      # les ports du leurre (MySQL, HTTP, MQTT), ouverts a tout le Wi-Fi
 
 [[ $EUID -eq 0 ]] || { echo "Lancer en root : sudo ... ./firewall.sh"; exit 1; }
 command -v ufw >/dev/null || { apt-get update -qq && apt-get install -y -qq ufw; }
