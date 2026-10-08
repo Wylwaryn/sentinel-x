@@ -21,6 +21,9 @@ mv "$LIVE" "$LIVE_DIR/$snap"
 # Chiffrement asymetrique : --trust-model always car la cle publique de l'hote est importee sans web-of-trust.
 gpg --batch --yes --trust-model always -r "$RECIP" --encrypt \
     -o "$SPOOL/$snap.gpg" "$LIVE_DIR/$snap"
+# Le fichier ne contient QUE du chiffre (illisible sur la VM) : on le rend lisible pour que l'hote le
+# recupere par scp avec l'utilisateur d'admin, sans sudo.
+chmod 644 "$SPOOL/$snap.gpg"
 
 # Effacement du clair (il etait en RAM de toute facon ; shred par precaution).
 shred -u "$LIVE_DIR/$snap" 2>/dev/null || rm -f "$LIVE_DIR/$snap"

@@ -36,9 +36,10 @@ install -d -m 755 "$DEST"
 install -m 644 "$SRC/common.py" "$SRC/tcp_tarpit.py" "$SRC/http_honeypot.py" "$DEST/"
 install -m 755 "$SRC/rotate.sh" "$DEST/"
 
-# 3. Etat sur disque : spool chiffre + trousseau GPG dedie, ecrivables par le service seul.
-install -d -m 750 -o "$USER_HP" -g "$USER_HP" "$STATE" "$SPOOL" "$GNUPG"
-chmod 700 "$GNUPG"
+# 3. Etat sur disque. Le spool ne contient que du CHIFFRE : traversable/lisible pour que l'hote le
+#    recupere par scp (sans sudo). Le trousseau GPG reste prive (700).
+install -d -m 755 -o "$USER_HP" -g "$USER_HP" "$STATE" "$SPOOL"
+install -d -m 700 -o "$USER_HP" -g "$USER_HP" "$GNUPG"
 
 # 4. Importer la cle PUBLIQUE de l'hote (chiffrement). Sans elle, la rotation ne peut pas chiffrer.
 if [[ -f "$SRC/host-pub.asc" ]]; then
