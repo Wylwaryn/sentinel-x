@@ -44,22 +44,29 @@ class FirewallBlocker:
         self._timers: dict[str, threading.Timer] = {}
         self._lock = threading.Lock()
 
-    def block(self, ip):
+    def block(self, ip, ports=None):
+        """Bloque l'IP au pare-feu Windows (règle entrante temporaire).
+        ports=None : blocage TOTAL (mode "blocage").
+        ports=[...] : on ne bloque QUE ces ports (mode "leurre" : on coupe les vrais services, mais on
+        laisse ouverts les ports du honeypot -> l'attaquant est aspiré vers le leurre sans le savoir)."""
         ip = str(ipaddress.ip_address(ip))
         with self._lock:
             if ip in self.blocked:
-                return "deja_bloquee"
+                return "deja_traitee"
             if not self.admin:
-                return "blocage_simule"
-            self.runner(["netsh", "advfirewall", "firewall", "add", "rule", f"name={RULE_PREFIX}{ip}",
-                         "dir=in", "action=block", f"remoteip={ip}"], check=True, capture_output=True)
+                return "leurre_simule" if ports else "blocage_simule"
+            cmd = ["netsh", "advfirewall", "firewall", "add", "rule", f"name={RULE_PREFIX}{ip}",
+                   "dir=in", "action=block", f"remoteip={ip}"]
+            if ports:  # ne couper que les vrais services ; le honeypot (autres ports) reste joignable
+                cmd += ["protocol=TCP", "localport=" + ",".join(str(p) for p in ports)]
+            self.runner(cmd, check=True, capture_output=True)
             self.blocked[ip] = time.monotonic() + self.ttl_s
             # Démon : n'empêche pas l'arrêt du programme ; unblock_all() nettoie les règles
             timer = threading.Timer(self.ttl_s, self.unblock, args=(ip,))
             timer.daemon = True
             self._timers[ip] = timer
         timer.start()
-        return "bloquee"
+        return "leurre" if ports else "bloquee"
 
     def unblock(self, ip):
         with self._lock:
@@ -152,8 +159,10 @@ class Responder:
         action = "alerte"
         if ip in self.never_block or (mac and mac in self.never_block_mac):
             action = "liste_blanche"
-        elif self.cfg["mode"] == "blocage" and score >= self.cfg["block_score"]:
-            action = self.blocker.block(ip)
+        elif self.cfg["mode"] in ("blocage", "leurre") and score >= self.cfg["block_score"]:
+            # "leurre" : on ne coupe que les vrais services, le honeypot reste ouvert (déception).
+            ports = self.cfg.get("real_ports") if self.cfg["mode"] == "leurre" else None
+            action = self.blocker.block(ip, ports=ports)
 
         top = top_features(contributions)
         event = {

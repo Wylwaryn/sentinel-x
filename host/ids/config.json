@@ -21,6 +21,8 @@
   },
   "response": {
     "mode": "alerte",
+    "_mode_options": "alerte (journal seul) | blocage (coupe tout) | leurre (coupe les vrais services, laisse le honeypot ouvert : l'attaquant est aspiré vers le leurre). blocage/leurre exigent un terminal ADMINISTRATEUR.",
+    "real_ports": [443, 8883],
     "alert_score": 0.5,
     "critical_score": 0.85,
     "block_score": 0.85,

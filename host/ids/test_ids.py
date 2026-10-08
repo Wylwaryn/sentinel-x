@@ -169,3 +169,26 @@ def test_malformed_ip_rejected():
     blocker = FirewallBlocker(ttl_s=1, runner=FakeRunner(), admin=True)
     with pytest.raises(ValueError):
         blocker.block("1.2.3.4 & del C:\\")
+
+
+def test_leurre_mode_blocks_only_real_services(tmp_path):
+    """Mode leurre : on coupe les vrais services (443, 8883), mais le honeypot (autres ports) reste
+    ouvert -> l'attaquant est aspiré vers le leurre au lieu d'être bloqué net."""
+    cfg = dict(RESPONSE_CFG, mode="leurre", real_ports=[443, 8883])
+    runner = FakeRunner()
+    r = Responder(cfg, [SERVER], blocker=FirewallBlocker(ttl_s=300, runner=runner, admin=True), base_dir=tmp_path)
+    ev = r.handle("192.168.137.66", 0.97, "SCAN_PORTS", 0.9, contrib(), ZERO, now=0)
+    assert ev["action"] == "leurre" and ev["niveau"] == "CRITIQUE"
+    cmd = runner.calls[0]
+    assert "action=block" in cmd and "remoteip=192.168.137.66" in cmd
+    assert "localport=443,8883" in cmd           # seuls les vrais services sont coupés
+    r.blocker.unblock_all()
+    assert runner.calls[-1][:5] == ["netsh", "advfirewall", "firewall", "delete", "rule"]
+
+
+def test_leurre_simule_sans_admin(tmp_path):
+    cfg = dict(RESPONSE_CFG, mode="leurre", real_ports=[443, 8883])
+    runner = FakeRunner()
+    r = Responder(cfg, [SERVER], blocker=FirewallBlocker(ttl_s=300, runner=runner, admin=False), base_dir=tmp_path)
+    ev = r.handle("192.168.137.66", 0.97, "SCAN_PORTS", 0.9, contrib(), ZERO, now=0)
+    assert ev["action"] == "leurre_simule" and runner.calls == []
