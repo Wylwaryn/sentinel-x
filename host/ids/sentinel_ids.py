@@ -135,48 +135,86 @@ def cmd_train(args, cfg):
     print(f"Modèle sauvegardé dans {cfg['model']['dir']}/")
 
 
+def _build_monitor(cap_cfg, resp_cfg, cfg, api, mode):
+    """Un moniteur = une capture + un répondeur. Renvoie (nom, LiveCapture, Responder, mode)."""
+    from response import Responder
+    cap = LiveCapture(cap_cfg)
+    rcfg = dict(resp_cfg)
+    rcfg["mode"] = mode
+    resp = Responder(rcfg, cap.protected, cfg.get("devices"), api=api, base_dir=BASE,
+                     devices_mac=cfg.get("devices_mac"), ip_to_mac=cap.mac_of)
+    return (cap_cfg["iface"], cap, resp, mode)
+
+
 def cmd_detect(_args, cfg):
     import torch
     from model import NetworkAnomalyDetector
-    from response import ApiSender, Responder, is_admin
+    from response import ApiSender, is_admin
 
     if torch.cuda.is_available():
         torch.cuda.set_per_process_memory_fraction(cfg["model"]["gpu_memory_fraction"], 0)
     det = NetworkAnomalyDetector.load(BASE / cfg["model"]["dir"])
-    cap = LiveCapture(cfg["capture"])
     api = ApiSender(cfg["api"], BASE) if cfg["api"]["enabled"] else None
-    responder = Responder(cfg["response"], cap.protected, cfg.get("devices"), api=api, base_dir=BASE,
-                          devices_mac=cfg.get("devices_mac"), ip_to_mac=cap.mac_of)
 
     mode = cfg["response"]["mode"]
     if mode == "blocage" and not is_admin():
         print("[IDS] mode blocage SANS droits administrateur : les blocages seront seulement simulés")
-    print(f"[IDS] détection sur {cfg['capture']['iface']} | IP protégées {cap.protected} | "
-          f"modèle sur {det.device} | mode {mode}")
-    cap.start()
+
+    # 1) Interface principale (hotspot) : mode complet de la config (leurre/blocage/alerte).
+    monitors = [_build_monitor(cfg["capture"], cfg["response"], cfg, api, mode)]
+
+    # 2) Interfaces supplémentaires (ex. réseau école). SURVEILLANCE SEULE par défaut : on force
+    #    "alerte" (jamais de blocage, pour ne pas couper le trafic Internet légitime de l'hôte) et on
+    #    ne capture que ce qui VISE l'hôte (SYN entrants + ICMP = scans/sondes), pas sa navigation.
+    from scapy.all import get_if_addr
+    for extra in cfg["capture"].get("extra_ifaces", []):
+        host_ip = (extra.get("protected_ips") or [None])[0] or get_if_addr(extra["iface"])
+        if not host_ip or host_ip in ("0.0.0.0", "127.0.0.1"):
+            print(f"[IDS] interface {extra['iface']} ignorée : IP hôte introuvable ({host_ip})")
+            continue
+        tmpl = extra.get("bpf_template", "dst host {ip} and (tcp[tcpflags] & (tcp-syn|tcp-ack) == tcp-syn or icmp)")
+        ecap_cfg = dict(cfg["capture"])
+        ecap_cfg.pop("extra_ifaces", None)
+        ecap_cfg["iface"] = extra["iface"]
+        ecap_cfg["protected_ips"] = [host_ip]
+        ecap_cfg["bpf"] = extra.get("bpf", tmpl.format(ip=host_ip))
+        emode = extra.get("mode", "alerte")
+        if emode != "alerte" and not is_admin():
+            emode = "alerte"
+        monitors.append(_build_monitor(ecap_cfg, cfg["response"], cfg, api, emode))
+
+    for name, c, _, m in monitors:
+        print(f"[IDS] détection sur {name} | IP protégées {c.protected} | mode {m}")
+    print(f"[IDS] modèle sur {det.device}")
+    for _, c, _, _ in monitors:
+        c.start()
     try:
         while True:
             time.sleep(cfg["capture"]["window_s"])
-            rows = cap.flush()
-            if not rows:
-                continue
-            ips = list(rows)
-            t0 = time.perf_counter()
-            vectors = [rows[ip] for ip in ips]
-            scores, contribs = det.score(vectors)
-            kinds, confidences = det.classify(vectors)
-            infer_ms = (time.perf_counter() - t0) * 1000
-            worst = max(range(len(ips)), key=lambda i: scores[i])
-            print(f"[IDS] {len(ips)} IP | pire {ips[worst]} score {scores[worst]:.2f} | {infer_ms:.1f} ms")
-            for i, ip in enumerate(ips):
-                event = responder.handle(ip, scores[i], kinds[i], confidences[i], contribs[i], rows[ip])
-                if event:
-                    print(f"  ⚠ [{event['niveau']}] {event['message']}")
+            for name, c, resp, _ in monitors:
+                rows = c.flush()
+                if not rows:
+                    continue
+                ips = list(rows)
+                t0 = time.perf_counter()
+                vectors = [rows[ip] for ip in ips]
+                scores, contribs = det.score(vectors)
+                kinds, confidences = det.classify(vectors)
+                infer_ms = (time.perf_counter() - t0) * 1000
+                worst = max(range(len(ips)), key=lambda i: scores[i])
+                tag = "" if len(monitors) == 1 else f"[{name}] "
+                print(f"[IDS] {tag}{len(ips)} IP | pire {ips[worst]} score {scores[worst]:.2f} | {infer_ms:.1f} ms")
+                for i, ip in enumerate(ips):
+                    event = resp.handle(ip, scores[i], kinds[i], confidences[i], contribs[i], rows[ip])
+                    if event:
+                        print(f"  ⚠ [{event['niveau']}] {event['message']}")
     except KeyboardInterrupt:
         pass
     finally:
-        cap.stop()
-        responder.blocker.unblock_all()
+        for _, c, _, _ in monitors:
+            c.stop()
+        for _, _, resp, _ in monitors:
+            resp.blocker.unblock_all()
 
 
 def main():

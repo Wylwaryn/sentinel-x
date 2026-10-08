@@ -4,6 +4,14 @@
     "bpf": "ip",
     "promisc": false,
     "_promisc": "false : ne PAS mettre la carte Wi-Fi en mode promiscuous (fait planter le pilote quand elle sert aussi de point d'accès). L'hôte étant la passerelle du réseau, tout le trafic des clients est déjà visible.",
+    "extra_ifaces": [
+      {
+        "iface": "Wi-Fi",
+        "protected_ips": [],
+        "mode": "alerte",
+        "_": "Réseau de l'école. SURVEILLANCE SEULE (jamais de blocage : trafic Internet légitime de l'hôte). IP hôte autodétectée ; capture limitée aux SYN entrants + ICMP vers l'hôte (scans/sondes), pas la navigation sortante."
+      }
+    ],
     "window_s": 2.0,
     "protected_ips": [
       "192.168.137.1"
