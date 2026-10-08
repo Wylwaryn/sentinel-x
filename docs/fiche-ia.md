@@ -83,13 +83,53 @@ SQL dans une requête HTTPS chiffrée) : ça, c'est la défense de l'API (requê
    `SX-G2-01`). Une machine en **liste blanche n'est jamais bloquée mais toujours alertée** (un ESP
    compromis doit se voir ; une MAC peut être usurpée).
 
-**Réponse.** Deux modes dans `config.json` :
-- **`alerte`** (par défaut) : journal `logs/ids_events.jsonl` + envoi à l'API (`RESEAU_IA`) ;
+**Réponse.** Trois modes dans `config.json` :
+- **`alerte`** : journal `logs/ids_events.jsonl` + envoi à l'API (`RESEAU_IA`) ;
 - **`blocage`** : en plus, **règle de pare-feu Windows entrante temporaire** (`netsh`, TTL 300 s)
-  pour l'IP fautive au-delà du score de blocage (0,85). Exige un terminal administrateur ; l'IP est
-  validée avant d'être passée à `netsh` (jamais de chaîne brute venue du réseau).
+  pour l'IP fautive au-delà du score de blocage (0,85) ;
+- **`leurre`** (mode du pentest) : la règle ne coupe **que les vrais services** (443 dashboard, 8883
+  MQTTS) pour l'IP fautive, et laisse ouverts les ports du **honeypot** (3306, 8080). L'attaquant
+  croit avoir perdu sa cible et se rabat sur le leurre, qui journalise tout ce qu'il tente.
+
+`blocage` et `leurre` exigent un terminal administrateur ; l'IP est validée avant d'être passée à
+`netsh` (jamais de chaîne brute venue du réseau). Une règle refusée est journalisée sans arrêter l'IDS.
 
 Seuils (`config.json`) : alerte 0,5, critique 0,85, blocage 0,85, cooldown 30 s par (IP, type).
+
+**Deux interfaces, deux politiques.**
+
+| Interface | Ce qu'elle porte | Capture | Mode |
+|---|---|---|---|
+| Point d'accès `192.168.137.1` | ESP, téléphones, attaquants de la table | tout le trafic IP | `leurre` |
+| Wi-Fi de l'école `10.60.60.42` | la sortie Internet de l'hôte | seulement les SYN entrants et l'ICMP vers l'hôte (sondes) | `alerte`, imposé |
+
+Sur l'interface école, **aucun blocage n'est possible** : un faux positif couperait la passerelle, le
+DNS ou une API dont l'hôte a besoin. Et aucun service n'y écoute plus (redirections VirtualBox liées
+au point d'accès et à `127.0.0.1`) : il n'y a rien à couper ni vers où attirer l'attaquant.
+On y gagne la **visibilité** : une sonde venue de l'école est vue, même si le pare-feu la rejette.
+
+**Capture sans mode promiscuous.** Mettre la carte Wi-Fi en promiscuous pendant qu'elle sert de point
+d'accès faisait planter le pilote Wi-Fi de Windows (carte perdue jusqu'au redémarrage, deux fois).
+C'est inutile ici : l'hôte est la passerelle du point d'accès, tout le trafic des clients le traverse.
+
+**Alertes réelles du pentest (8 oct.), et comment les lire.**
+
+| Alerte | Interface | Ce que c'était | Réponse |
+|---|---|---|---|
+| `TRAFIC_ANORMAL` **CRITIQUE**, score 1,00, `192.168.137.73` (SYN, UDP, ports de service) | point d'accès | **vrai scan de ports** d'une autre équipe | **`leurre`** : règle `netsh` 443 + 8883 pour cette IP, honeypot laissé ouvert |
+| `TRAFIC_ANORMAL` AVERTISSEMENT, score ~0,51, `192.168.137.212` | point d'accès | **notre ESP** (reconnu par sa MAC) : rafale de reconnexion MQTT, juste au-dessus du seuil | `liste_blanche` : journalisé, jamais bloqué |
+| `TRAFIC_ANORMAL` CRITIQUE, score 1,00, `10.128.128.128` (1 ICMP/s, 80 o, aucun port) | école | **faux positif** : un ping régulier de l'infrastructure Wi-Fi de l'école. `10.128.128.128` est l'adresse virtuelle des bornes Cisco Meraki | `alerte` seulement (aucun effet sur le réseau) |
+
+Ce que ces cas montrent :
+- **Le modèle signale l'inconnu, pas forcément l'hostile.** Il n'a appris que le trafic du point
+  d'accès : un ping d'infrastructure, jamais vu, sort à 1,00. C'est pourquoi il nomme `TRAFIC_ANORMAL`
+  sans forcer une étiquette d'attaque, et pourquoi l'humain lit les caractéristiques (`details`).
+- **La politique de réponse compte autant que le score.** Le même score 1,00 déclenche un leurre sur
+  le point d'accès et une simple alerte sur l'école. Un blocage automatique sur l'école aurait coupé
+  une borne Wi-Fi.
+- **Amélioration possible** : ré-entraîner l'étage 1 avec du trafic normal de l'interface école, ou
+  exclure les adresses d'infrastructure connues de la capture école. Choix fait pour le pentest :
+  garder l'alerte visible et la documenter.
 
 **Validation.** 13+ tests. Modèle **amorcé sur du trafic synthétique** (`simulate.py`) ; à
 **ré-entraîner sur le trafic réel** de la table (`record` puis `train`) pendant l'intégration.
