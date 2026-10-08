@@ -25,11 +25,22 @@ def resolve_index(cam_cfg):
     name = cam_cfg.get("name")
     if not name:
         return cam_cfg["index"]
+    require = cam_cfg.get("require_name", True)
     try:
         from pygrabber.dshow_graph import FilterGraph
+    except Exception as exc:
+        # pygrabber absent : condition PERMANENTE, on ne peut pas résoudre par nom -> repli sur l'index.
+        print(f"[CAMÉRA] pygrabber indisponible ({exc}), repli sur l'index {cam_cfg['index']}")
+        return cam_cfg["index"]
+    try:
         devices = FilterGraph().get_input_devices()
     except Exception as exc:
-        print(f"[CAMÉRA] énumération par nom indisponible ({exc}), repli sur l'index {cam_cfg['index']}")
+        # Erreur TRANSITOIRE d'énumération (fréquente pendant un débranchement USB : le périphérique
+        # disparaît en pleine énumération COM). Si on exige l'USB, on NE bascule PAS sur l'intégrée :
+        # on lève pour que open_camera_waiting réessaie, le temps que l'USB revienne.
+        if require:
+            raise RuntimeError(f"énumération caméra impossible ({exc}) — on attend l'USB, pas de bascule")
+        print(f"[CAMÉRA] énumération impossible ({exc}), repli sur l'index {cam_cfg['index']}")
         return cam_cfg["index"]
     for i, dev in enumerate(devices):
         if name.lower() in dev.lower():
