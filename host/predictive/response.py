@@ -139,7 +139,9 @@ class Responder:
         self._calm[serie] = 0 if suspicious else self._calm.get(serie, 0) + 1
         if self._calm[serie] >= persistence:
             self._episodes.pop(serie, None)  # retour au calme confirmé : l'épisode est clos
-        if self._streak[serie] < persistence:
+        # La persistance filtre le bruit du modèle et des bornes d'avertissement. Une borne CRITIQUE
+        # franchie (ex. gaz à 620 pour une limite à 279) n'est pas du bruit : on alerte tout de suite.
+        if self._streak[serie] < persistence and not (crossed and crossed[1] == "CRITIQUE"):
             return None
 
         if crossed and kind == "DERIVE_INDETERMINEE":

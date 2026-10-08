@@ -207,15 +207,23 @@ def test_alert_payload_matches_ingest_contract(tmp_path):
 
 
 def test_crossed_critical_bound_alerts_even_if_model_is_calm(tmp_path):
-    """Filet de sécurité : borne critique franchie -> alerte CRITIQUE, même avec un score bas,
-    et le type vient de la borne quand le modèle n'en a pas."""
+    """Filet de sécurité : borne critique franchie -> alerte CRITIQUE dès la PREMIÈRE évaluation (sans
+    attendre la persistance), même avec un score bas, et le type vient de la borne quand le modèle n'en a pas."""
     r = Responder(cfg_tmp(tmp_path), api=None, base_dir=tmp_path)
     v, c = [0.0] * len(IDX), np.zeros(len(IDX))
     crossed = ("hum_haut", "CRITIQUE")
-    assert r.handle("SX", 0.05, "DERIVE_INDETERMINEE", 0.3, c, v, (None, None), now=0, crossed=crossed) is None
-    ev = r.handle("SX", 0.05, "DERIVE_INDETERMINEE", 0.3, c, v, (None, None), now=10, crossed=crossed)
+    ev = r.handle("SX", 0.05, "DERIVE_INDETERMINEE", 0.3, c, v, (None, None), now=0, crossed=crossed)
     assert ev["niveau"] == "CRITIQUE" and ev["sous_type"] == "HUMIDITE_ELEVEE"
     assert ev["borne_franchie"] == {"capteur": "hum", "sens": "haut", "niveau": "CRITIQUE", "limite": 90}
+
+
+def test_crossed_warning_bound_still_needs_persistence(tmp_path):
+    """Une borne d'AVERTISSEMENT garde la persistance : un pic isolé n'alerte pas."""
+    r = Responder(cfg_tmp(tmp_path), api=None, base_dir=tmp_path)
+    v, c = [0.0] * len(IDX), np.zeros(len(IDX))
+    crossed = ("hum_haut", "AVERTISSEMENT")
+    assert r.handle("SX", 0.05, "DERIVE_INDETERMINEE", 0.3, c, v, (None, None), now=0, crossed=crossed) is None
+    assert r.handle("SX", 0.05, "DERIVE_INDETERMINEE", 0.3, c, v, (None, None), now=10, crossed=crossed) is not None
 
 
 def test_one_alert_per_episode(tmp_path):
