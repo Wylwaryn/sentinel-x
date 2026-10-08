@@ -55,8 +55,10 @@ et seulement depuis `SERVICE_VISION_IPS` (`10.0.2.2` par défaut : le PC hôte v
 Utilisateurs et images de référence : ADMIN **et** PC hôte (`HOST_ONLY_IPS`, défaut `10.0.2.2,192.168.137.1`), sinon 403.
 `/auth/me` renvoie `poste_hote` pour que l'interface masque ces deux sections ailleurs.
 
-LED rouge automatique : à chaque nouvelle alerte `CRITIQUE`, l'API publie `led rouge clignote` (`duree_ms` 30 min) sur
-`sentinel/cmd/<numero_serie>`, puis `off` quand plus aucune `CRITIQUE` n'attend d'acquittement sur ce boîtier.
+Alarme automatique : à chaque nouvelle alerte `CRITIQUE`, l'API publie sur `sentinel/cmd/<numero_serie>` trois
+commandes : `led rouge clignote` et `led vert off` (tenues 30 min par `duree_ms`), puis `buzzer on` (10 s, plafond
+de l'ESP). Quand plus aucune `CRITIQUE` n'attend d'acquittement sur ce boîtier : `led rouge off`, `led vert on`
+(le témoin de liaison reprend ensuite seul) et `buzzer off`.
 
 Les instants sont envoyés en UTC (`"instant": "2026-10-07T14:02:11.482913Z"`) ; le navigateur affiche l'heure de Paris.
 

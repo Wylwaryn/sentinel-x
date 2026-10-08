@@ -481,6 +481,8 @@ Les photos de visages sont des données biométriques : la section « Images de 
 - **Caméra : la vision EXIGE maintenant « USB Camera » par son nom** (`camera.require_name`, défaut vrai) : si l'USB est absente/pas prête, elle **attend** au lieu de basculer sur la caméra intégrée du portable. La reconnaissance faciale et le verrou passent donc toujours par l'USB.
 - **La VM VirtualBox ne redémarre pas avec Windows** : la lancer (VirtualBox, ou `VBoxManage startvm "Sentinel-Server" --type headless`). La stack Docker remonte seule au boot de la VM.
 
+**→ VM : alarme physique complète sur alerte CRITIQUE, à déployer (8 oct., demandée par l'utilisateur).** Constat sur le boîtier : la LED rouge clignotait mais **le vert restait allumé et le buzzer ne sonnait pas** (l'API n'envoyait que `led rouge clignote`). `dashboard/api/app/main.py` envoie maintenant 3 commandes : rouge clignote + vert off (30 min) + buzzer on (10 s) ; au retour à la normale : rouge off, vert on, buzzer off. **Aucun changement de firmware ni d'ACL** (même topic `sentinel/cmd/<serie>`, même compte `dashboard`). `tests/scenario.py` aligné. **À faire VM** : `sudo docker compose up -d --build dashboard`, puis `test_dashboard.sh`.
+
 ### Demandes à la session VM
 
 **→ VM : feu vert étape 5, « préparer le durcissement de jeudi SANS l'appliquer ».** Écrire `server/hardening/apply.sh` et `server/hardening/verify.sh`, idempotents, avec un mode `--dry-run` par défaut. Ils couvrent la liste « Durcissement à faire jeudi matin » de ce fichier, côté VM :

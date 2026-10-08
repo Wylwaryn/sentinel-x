@@ -51,34 +51,47 @@ FICHIER_OK = re.compile(r"^(captures|references)/[0-9a-f]{32}\.jpg$")
 EMAIL_OK = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
-# LED rouge du boîtier pilotée par les alertes CRITIQUE (demande IoT). Le firmware tient une commande LED
-# pendant duree_ms (30 min max, LED_MAX_HOLD_MS) : une seule commande suffit, pas de renvoi périodique.
-LED_CRITIQUE_ON = {"actionneur": "led", "couleur": "rouge", "etat": "clignote", "duree_ms": 1_800_000}
-LED_CRITIQUE_OFF = {"actionneur": "led", "couleur": "rouge", "etat": "off"}
+# Alarme physique du boîtier pilotée par les alertes CRITIQUE. Le firmware tient une commande LED pendant
+# duree_ms (30 min max, LED_MAX_HOLD_MS) : pas de renvoi périodique. Sans commande, la LED verte est le
+# témoin de liaison (fixe en ligne) : il faut donc l'éteindre explicitement, sinon rouge et vert s'allument
+# ensemble. Le buzzer est plafonné à 10 s par commande côté ESP : il sonne à l'arrivée de l'alerte.
+ALARME_ON = (
+    {"actionneur": "led", "couleur": "rouge", "etat": "clignote", "duree_ms": 1_800_000},
+    {"actionneur": "led", "couleur": "vert", "etat": "off", "duree_ms": 1_800_000},
+    {"actionneur": "buzzer", "etat": "on", "duree_ms": 10_000},
+)
+# Retour à la normale : rouge éteint, vert rallumé (le témoin de liaison reprend ensuite seul), buzzer coupé.
+ALARME_OFF = (
+    {"actionneur": "led", "couleur": "rouge", "etat": "off"},
+    {"actionneur": "led", "couleur": "vert", "etat": "on"},
+    {"actionneur": "buzzer", "etat": "off"},
+)
 
 
 async def led_sur_alerte(alerte: dict):
-    """Nouvelle alerte CRITIQUE : LED rouge clignotante. Alerte CRITIQUE acquittée ou résolue et plus
-    aucune en attente sur ce boîtier : LED éteinte. Commande envoyée par l'API (compte MQTT dashboard)."""
+    """Nouvelle alerte CRITIQUE : rouge clignotant, vert éteint, buzzer. Alerte CRITIQUE acquittée ou
+    résolue et plus aucune en attente sur ce boîtier : retour à la normale. Commandes envoyées par l'API
+    (compte MQTT dashboard)."""
     if alerte.get("niveau") != "CRITIQUE" or not alerte.get("id_dispositif"):
         return
     id_dispositif = alerte["id_dispositif"]
     try:
         if alerte.get("operation") == "INSERT" and alerte.get("statut") == "NOUVELLE":
-            commande = LED_CRITIQUE_ON
+            commandes, etat = ALARME_ON, "alarme"
         elif alerte.get("operation") == "UPDATE" and alerte.get("statut") != "NOUVELLE"                 and await db.critiques_en_attente(id_dispositif) == 0:
-            commande = LED_CRITIQUE_OFF
+            commandes, etat = ALARME_OFF, "fin d'alarme"
         else:
             return
         serie = await db.numero_serie(id_dispositif)
         if not serie or not SERIE_OK.match(serie):
             return
-        if await mqtt.commande(serie, commande):
-            log.info("LED automatique %s vers %s (alerte %s)", commande["etat"], serie, alerte.get("id_alerte"))
+        envoyees = [await mqtt.commande(serie, c) for c in commandes]
+        if all(envoyees):
+            log.info("Alarme automatique (%s) vers %s (alerte %s)", etat, serie, alerte.get("id_alerte"))
         else:
-            log.warning("LED automatique non envoyée vers %s : broker MQTT indisponible", serie)
+            log.warning("Alarme automatique incomplète vers %s : broker MQTT indisponible", serie)
     except Exception:
-        log.exception("LED automatique : échec pour l'alerte %s", alerte.get("id_alerte"))
+        log.exception("Alarme automatique : échec pour l'alerte %s", alerte.get("id_alerte"))
 
 
 listener.sur_alerte = led_sur_alerte

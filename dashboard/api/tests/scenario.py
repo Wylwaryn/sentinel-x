@@ -137,8 +137,18 @@ async def prochaine_commande(esp, delai=3.0):
         return None
 
 
-LED_ON = {"actionneur": "led", "couleur": "rouge", "etat": "clignote", "duree_ms": 1800000}
-LED_OFF = {"actionneur": "led", "couleur": "rouge", "etat": "off"}
+async def prochaines_commandes(esp, n, delai=3.0):
+    """Les n prochaines commandes reçues par le faux ESP (une alarme en compte plusieurs)."""
+    return [await prochaine_commande(esp, delai) for _ in range(n)]
+
+
+# Alarme CRITIQUE : rouge clignotant + vert éteint (tenus 30 min) + buzzer 10 s ; puis retour à la normale.
+LED_ON = [{"actionneur": "led", "couleur": "rouge", "etat": "clignote", "duree_ms": 1800000},
+          {"actionneur": "led", "couleur": "vert", "etat": "off", "duree_ms": 1800000},
+          {"actionneur": "buzzer", "etat": "on", "duree_ms": 10000}]
+LED_OFF = [{"actionneur": "led", "couleur": "rouge", "etat": "off"},
+           {"actionneur": "led", "couleur": "vert", "etat": "on"},
+           {"actionneur": "buzzer", "etat": "off"}]
 
 
 def mqtt(user):
@@ -212,7 +222,8 @@ async def main():
               "alerte CRITIQUE reçue en WebSocket")
         check(duree is not None and duree < 1, True, f"alerte CRITIQUE en moins d'1 s ({duree and round(duree * 1000)} ms)")
         id_alerte = msg["data"]["id_alerte"] if msg else 0
-        check(await prochaine_commande(esp), LED_ON, "alerte CRITIQUE : LED rouge clignotante envoyée à l'ESP (30 min)")
+        check(await prochaines_commandes(esp, 3), LED_ON,
+              "alerte CRITIQUE : rouge clignotant, vert éteint et buzzer envoyés à l'ESP")
 
         admin_sql("INSERT INTO alerte (type_alerte, origine, niveau, ip_source) "
                   "VALUES ('SCAN_PORTS', 'RESEAU_IA', 'CRITIQUE', '192.168.137.66')")
@@ -237,7 +248,8 @@ async def main():
         check(code("POST", f"/api/v1/alertes/{id_alerte}/acquitter", cookie=operateur), 200, "OPERATEUR acquitte")
         msg, _ = await attendre(ws, lambda m: isinstance(m, dict) and m["type"] == "alerte" and m["data"]["operation"] == "UPDATE")
         check(msg and msg["data"]["statut"], "ACQUITTEE", "acquittement notifié aux navigateurs")
-        check(await prochaine_commande(esp), LED_OFF, "plus aucune CRITIQUE en attente : LED rouge éteinte")
+        check(await prochaines_commandes(esp, 3), LED_OFF,
+              "plus aucune CRITIQUE en attente : rouge éteint, vert rallumé, buzzer coupé")
         check(code("POST", f"/api/v1/alertes/{id_alerte}/acquitter", cookie=operateur), 409, "acquitter deux fois : 409")
         check(code("POST", "/api/v1/alertes/999999/resoudre", cookie=operateur), 404, "alerte inconnue : 404")
         reseau = admin_sql("SELECT id_alerte FROM alerte WHERE origine = 'RESEAU_IA' LIMIT 1")[0]
@@ -250,18 +262,18 @@ async def main():
         check(any(a["id_alerte"] == id_alerte for a in corps_json("GET", "/api/v1/alertes", cookie=lecteur)), False,
               "alerte résolue retirée des alertes ouvertes")
         check(code("GET", f"/api/v1/alertes/{id_alerte}/capture", cookie=lecteur), 404, "capture absente du disque : 404")
-        await prochaine_commande(esp, 1)   # « off » renvoyé à la résolution : sans effet, on le consomme
+        await prochaines_commandes(esp, 3, 1)   # fin d'alarme renvoyée à la résolution : sans effet, on la consomme
 
         # Deux alertes CRITIQUE : la LED reste allumée tant qu'il en reste une en attente
         deux = [admin_sql("INSERT INTO alerte (id_dispositif, type_alerte, origine, niveau) "
                           "VALUES (%s, 'PRESENCE', 'VISION_IA', 'CRITIQUE') RETURNING id_alerte", (dev,))[0]
                 for _ in range(2)]
-        recues = [await prochaine_commande(esp), await prochaine_commande(esp)]
-        check(recues, [LED_ON, LED_ON], "deux alertes CRITIQUE : LED rouge envoyée pour chacune")
+        recues = await prochaines_commandes(esp, 6)
+        check(recues, LED_ON + LED_ON, "deux alertes CRITIQUE : alarme envoyée pour chacune")
         code("POST", f"/api/v1/alertes/{deux[0]}/acquitter", cookie=operateur)
         check(await prochaine_commande(esp, 1.5), None, "une acquittée, une encore en attente : LED laissée allumée")
         code("POST", f"/api/v1/alertes/{deux[1]}/acquitter", cookie=operateur)
-        check(await prochaine_commande(esp), LED_OFF, "la dernière acquittée : LED éteinte")
+        check(await prochaines_commandes(esp, 3), LED_OFF, "la dernière acquittée : retour à la normale")
         admin_sql("INSERT INTO alerte (id_dispositif, type_alerte, origine, niveau) "
                   "VALUES (%s, 'ANGLE_MORT', 'PIR', 'AVERTISSEMENT')", (dev,))
         check(await prochaine_commande(esp, 1), None, "alerte AVERTISSEMENT : pas de LED automatique")
