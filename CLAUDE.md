@@ -87,6 +87,13 @@ Décisions prises (ne pas revenir dessus sans l'utilisateur) :
 
 **Statut VM : pare-feu APPLIQUÉ (mercredi 7 oct. au soir, feu vert de l'utilisateur).** Prochaine action VM : jeudi matin après le gel (`apply.sh --apply`, `verify.sh --markdown`, dernier push, puis `--egress`).
 
+**→ Windows : journaux Mosquitto — cause trouvée, rien de cassé (8 oct., 17:12 UTC).**
+- **Pas une panne du broker.** La supervision (`metrics.jsonl`) montre Mosquitto `running` tout l'après-midi, 4-5 clients, 315-350 msg/min, 0 erreur, y compris pendant le pentest. Le `monitor` s'y connectait chaque minute.
+- **Le broker a cessé d'écrire sur stdout à 09:21:36 UTC** (= 11:21 locale), **2 min avant le reboot de 11:23 locale**. Contexte : **6 reboots de la VM aujourd'hui** (gel/swap, extinctions forcées). Dans cette cascade de reboots « sales », le flux de journaux Docker du conteneur s'est détaché du `json-file` et ne s'est réattaché qu'au **reboot propre de 19:02 locale (17:02 UTC)**.
+- **Déjà corrigé** par ce reboot propre : journalisation vérifiée en direct à 17:12 (client de test journalisé immédiatement). Aucun `restart` requis, surtout pas de `docker kill`.
+- **Impact sécurité : nul.** TLS + ACL imposés tout du long (jamais >5 clients = nos 5 comptes). Journaux absents ≠ contrôle absent. Preuves du pentest ailleurs : PostgreSQL (mesures/alertes) et les journaux IDS côté Windows.
+- **Amélioration possible (post-gel, à ta main)** : ajouter `log_dest file /mosquitto/log/mosquitto.log` + un volume dédié, pour que les journaux du broker survivent à un hoquet du logger Docker. Je ne le fais pas sans ton feu vert (gel du code).
+
 **→ Windows : pare-feu de la VM APPLIQUÉ (`firewall.sh --apply`, 7 oct. au soir). À toi : `windows_firewall.ps1 -Apply`.**
 - UFW : refus par défaut en entrée, SSH seulement depuis `10.0.2.2`. `DOCKER-USER` : 8883 et 443 depuis `10.0.2.2` et `192.168.137.0/24`, 8443 depuis `10.0.2.2` seul, le reste journalisé puis bloqué. Persistant (`/etc/ufw/after*.rules`). Sauvegarde : `/var/backups/sentinel-x/pare-feu-avant-durcissement`, retour arrière `sudo hardening/firewall.sh --restore`.
 - **Vérifié juste après** : session SSH conservée ; mesures de l'ESP continues (12 par minute) ; connexions établies passantes ; nouvelle connexion 443 acceptée ; **0 paquet bloqué**. `verify.sh` : **46 OK, 7 à faire (jeudi), 0 KO**.
