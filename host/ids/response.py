@@ -148,6 +148,12 @@ class Responder:
         self.log_path = Path(base_dir) / response_cfg["log_file"]
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self._last: dict[tuple, float] = {}
+        # IP ayant déjà prouvé leur hostilité (passées >= block_score au moins une fois). Une attaque
+        # a un score qui fluctue : sans ça, dès qu'elle retombe sous block_score, elle n'est plus
+        # re-leurrée et récupère l'accès aux vrais services à l'expiration de la règle. "leurre_persistant"
+        # (défaut vrai) : on garde une IP connue hostile au leurre tant qu'elle est encore signalée.
+        self._hostile: set = set()
+        self.sticky = response_cfg.get("leurre_persistant", True)
 
     def handle(self, ip, score, kind, type_confidence, contributions, vector, now=None):
         if score < self.cfg["alert_score"]:
@@ -163,7 +169,13 @@ class Responder:
         action = "alerte"
         if ip in self.never_block or (mac and mac in self.never_block_mac):
             action = "liste_blanche"
-        elif self.cfg["mode"] in ("blocage", "leurre") and score >= self.cfg["block_score"]:
+        elif self.cfg["mode"] in ("blocage", "leurre") and (
+                score >= self.cfg["block_score"] or (self.sticky and ip in self._hostile)):
+            # Hostile si le score franchit le seuil MAINTENANT, ou si l'IP est déjà connue hostile et
+            # encore signalée (ici score >= alert_score, garanti plus haut). On la mémorise au premier
+            # franchissement : elle reste au leurre même quand son score redescend en "alerte".
+            if score >= self.cfg["block_score"]:
+                self._hostile.add(ip)
             # "leurre" : on ne coupe que les vrais services, le honeypot reste ouvert (déception).
             ports = self.cfg.get("real_ports") if self.cfg["mode"] == "leurre" else None
             action = self.blocker.block(ip, ports=ports)

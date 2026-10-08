@@ -192,3 +192,25 @@ def test_leurre_simule_sans_admin(tmp_path):
     r = Responder(cfg, [SERVER], blocker=FirewallBlocker(ttl_s=300, runner=runner, admin=False), base_dir=tmp_path)
     ev = r.handle("192.168.137.66", 0.97, "SCAN_PORTS", 0.9, contrib(), ZERO, now=0)
     assert ev["action"] == "leurre_simule" and runner.calls == []
+
+
+def test_leurre_persistant_garde_une_ip_connue_hostile(tmp_path):
+    """Une IP passée >= block_score reste au leurre même quand son score retombe en 'alerte' (sinon
+    l'attaquant récupère les vrais services entre deux rafales, à l'expiration de la règle)."""
+    cfg = dict(RESPONSE_CFG, mode="leurre", real_ports=[443, 8883], leurre_persistant=True)
+    r = Responder(cfg, [SERVER], blocker=FirewallBlocker(ttl_s=300, runner=FakeRunner(), admin=True), base_dir=tmp_path)
+    assert r.handle("192.168.137.66", 0.97, "SCAN_PORTS", 0.9, contrib(), ZERO, now=0)["action"] == "leurre"
+    r.blocker.unblock("192.168.137.66")                                   # la règle expire (TTL)
+    # score retombé sous block_score mais toujours signalé : re-leurrée car déjà connue hostile
+    assert r.handle("192.168.137.66", 0.60, "SCAN_PORTS", 0.5, contrib(), ZERO, now=100)["action"] == "leurre"
+    # une IP jamais hostile au même score reste en simple alerte
+    assert r.handle("192.168.137.99", 0.60, "SCAN_PORTS", 0.5, contrib(), ZERO, now=100)["action"] == "alerte"
+
+
+def test_leurre_persistant_desactivable(tmp_path):
+    """leurre_persistant=false : ancien comportement, une IP retombée sous block_score n'est plus leurrée."""
+    cfg = dict(RESPONSE_CFG, mode="leurre", real_ports=[443, 8883], leurre_persistant=False)
+    r = Responder(cfg, [SERVER], blocker=FirewallBlocker(ttl_s=300, runner=FakeRunner(), admin=True), base_dir=tmp_path)
+    assert r.handle("192.168.137.66", 0.97, "SCAN_PORTS", 0.9, contrib(), ZERO, now=0)["action"] == "leurre"
+    r.blocker.unblock("192.168.137.66")
+    assert r.handle("192.168.137.66", 0.60, "SCAN_PORTS", 0.5, contrib(), ZERO, now=100)["action"] == "alerte"

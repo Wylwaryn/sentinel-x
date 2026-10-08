@@ -33,6 +33,8 @@
     "mode": "leurre",
     "_mode_options": "alerte (journal seul) | blocage (coupe tout) | leurre (coupe les vrais services, laisse le honeypot ouvert : l'attaquant est aspiré vers le leurre). blocage/leurre exigent un terminal ADMINISTRATEUR.",
     "real_ports": [443, 8883],
+    "leurre_persistant": true,
+    "_leurre_persistant": "true : une IP passée >= block_score reste au leurre tant qu'elle est encore signalée (>= alert_score), même quand son score redescend. Empêche un attaquant de récupérer l'accès aux vrais services entre deux rafales.",
     "alert_score": 0.5,
     "critical_score": 0.85,
     "block_score": 0.85,
