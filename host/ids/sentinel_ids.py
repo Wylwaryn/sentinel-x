@@ -172,7 +172,10 @@ def cmd_detect(_args, cfg):
         if not host_ip or host_ip in ("0.0.0.0", "127.0.0.1"):
             print(f"[IDS] interface {extra['iface']} ignorée : IP hôte introuvable ({host_ip})")
             continue
-        tmpl = extra.get("bpf_template", "dst host {ip} and (tcp[tcpflags] & (tcp-syn|tcp-ack) == tcp-syn or icmp)")
+        # SYN entrants vers l'hôte = tentatives de connexion (scans TCP). PAS d'ICMP : sur une interface
+        # où l'hôte n'expose aucun service, l'ICMP reçu n'est que le sous-produit de son propre trafic
+        # Internet (réponses de CDN/cloud) -> du bruit à 1.00, aucune valeur de détection.
+        tmpl = extra.get("bpf_template", "dst host {ip} and tcp[tcpflags] & (tcp-syn|tcp-ack) == tcp-syn")
         ecap_cfg = dict(cfg["capture"])
         ecap_cfg.pop("extra_ifaces", None)
         ecap_cfg["iface"] = extra["iface"]

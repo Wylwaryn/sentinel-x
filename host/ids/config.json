@@ -9,7 +9,7 @@
         "iface": "Wi-Fi",
         "protected_ips": [],
         "mode": "alerte",
-        "_": "Réseau de l'école. SURVEILLANCE SEULE (jamais de blocage : trafic Internet légitime de l'hôte). IP hôte autodétectée ; capture limitée aux SYN entrants + ICMP vers l'hôte (scans/sondes), pas la navigation sortante."
+        "_": "Réseau de l'école. SURVEILLANCE SEULE (jamais de blocage : trafic Internet légitime de l'hôte). IP hôte autodétectée ; capture limitée aux SYN entrants vers l'hôte (scans TCP), pas la navigation sortante ni l'ICMP (bruit des réponses CDN/cloud)."
       }
     ],
     "window_s": 2.0,
