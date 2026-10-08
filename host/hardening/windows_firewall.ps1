@@ -61,6 +61,9 @@ foreach ($prog in $vboxProgs) {
     $short = [IO.Path]::GetFileNameWithoutExtension($prog)
     $newRules += @{ Name = "MQTTS 8883 (ESP, vision) - $short"; Protocol = "TCP"; Port = "8883"; Program = $prog }
     $newRules += @{ Name = "HTTPS 443 (dashboard) - $short";    Protocol = "TCP"; Port = "443";  Program = $prog }
+    # Leurre honeypot (VM "honeypot") : doit etre joignable sur le hotspot pour piéger les attaquants.
+    $newRules += @{ Name = "Honeypot MySQL 3306 (leurre) - $short"; Protocol = "TCP"; Port = "3306"; Program = $prog }
+    $newRules += @{ Name = "Honeypot HTTP 8080 (leurre) - $short";  Protocol = "TCP"; Port = "8080"; Program = $prog }
 }
 $newRules += @(
     @{ Name = "DHCP point d'acces";       Protocol = "UDP"; Port = "67";   Program = $null },
