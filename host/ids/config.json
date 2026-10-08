@@ -2,6 +2,8 @@
   "capture": {
     "iface": "Connexion au réseau local* 4",
     "bpf": "ip",
+    "promisc": false,
+    "_promisc": "false : ne PAS mettre la carte Wi-Fi en mode promiscuous (fait planter le pilote quand elle sert aussi de point d'accès). L'hôte étant la passerelle du réseau, tout le trafic des clients est déjà visible.",
     "window_s": 2.0,
     "protected_ips": [
       "192.168.137.1"

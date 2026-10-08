@@ -48,7 +48,12 @@ class LiveCapture:
         self.agg = FlowAggregator(protected, cap_cfg["service_ports"])
         self.lock = threading.Lock()
         self.ip_mac = {}  # IP -> adresse MAC vue dans les trames (les IP du point d'accès changent)
-        self.sniffer = AsyncSniffer(iface=cap_cfg["iface"], filter=cap_cfg["bpf"], prn=self._on_packet, store=False)
+        # promisc=False par défaut : mettre la carte Wi-Fi en mode promiscuous PENDANT qu'elle sert de
+        # point d'accès (Mobile Hotspot) fait planter le pilote Wi-Fi sous Windows (carte perdue jusqu'au
+        # redémarrage). Inutile ici : l'hôte est la passerelle du 192.168.137.0/24, tout le trafic des
+        # clients (ESP, attaquants) est routé à travers sa pile et donc déjà visible sans promiscuous.
+        self.sniffer = AsyncSniffer(iface=cap_cfg["iface"], filter=cap_cfg["bpf"], prn=self._on_packet,
+                                    store=False, promisc=cap_cfg.get("promisc", False))
 
     def _on_packet(self, pkt):
         from scapy.layers.l2 import Ether
