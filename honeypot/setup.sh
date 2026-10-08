@@ -31,10 +31,12 @@ for pkg in python3 gnupg; do command -v "${pkg/gnupg/gpg}" >/dev/null || { apt-g
 # 1. Utilisateur de service : systeme, sans shell, sans sudo.
 id "$USER_HP" &>/dev/null || useradd --system --no-create-home --shell /usr/sbin/nologin "$USER_HP"
 
-# 2. Code dans /opt.
+# 2. Code dans /opt (lisible par tous : l'utilisateur 'honeypot' ne peut pas lire dans ton home,
+#    donc on copie AUSSI la cle publique ici, depuis ou il pourra l'importer).
 install -d -m 755 "$DEST"
 install -m 644 "$SRC/common.py" "$SRC/tcp_tarpit.py" "$SRC/http_honeypot.py" "$DEST/"
 install -m 755 "$SRC/rotate.sh" "$DEST/"
+[[ -f "$SRC/host-pub.asc" ]] && install -m 644 "$SRC/host-pub.asc" "$DEST/"
 
 # 3. Etat sur disque. Le spool ne contient que du CHIFFRE : traversable/lisible pour que l'hote le
 #    recupere par scp (sans sudo). Le trousseau GPG reste prive (700).
@@ -42,8 +44,9 @@ install -d -m 755 -o "$USER_HP" -g "$USER_HP" "$STATE" "$SPOOL"
 install -d -m 700 -o "$USER_HP" -g "$USER_HP" "$GNUPG"
 
 # 4. Importer la cle PUBLIQUE de l'hote (chiffrement). Sans elle, la rotation ne peut pas chiffrer.
-if [[ -f "$SRC/host-pub.asc" ]]; then
-  sudo -u "$USER_HP" GNUPGHOME="$GNUPG" gpg --batch --import "$SRC/host-pub.asc"
+if [[ -f "$DEST/host-pub.asc" ]]; then
+  # On importe depuis /opt (lisible par 'honeypot'). 'env' garantit que GNUPGHOME est bien pris.
+  sudo -u "$USER_HP" env GNUPGHOME="$GNUPG" gpg --batch --import "$DEST/host-pub.asc"
   echo "Cle publique de l'hote importee (destinataire : $RECIP)."
 else
   echo "ATTENTION : host-pub.asc absent. Genere la paire sur l'HOTE (voir README), copie host-pub.asc ici,"
