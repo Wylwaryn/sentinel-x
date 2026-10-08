@@ -104,9 +104,10 @@ Seuils (`config.json`) : alerte 0,5, critique 0,85, blocage 0,85, cooldown 30 s 
 | Wi-Fi de l'école `10.60.60.42` | la sortie Internet de l'hôte | seulement les SYN entrants et l'ICMP vers l'hôte (sondes) | `alerte`, imposé |
 
 Sur l'interface école, **aucun blocage n'est possible** : un faux positif couperait la passerelle, le
-DNS ou une API dont l'hôte a besoin. Et aucun service n'y écoute plus (redirections VirtualBox liées
-au point d'accès et à `127.0.0.1`) : il n'y a rien à couper ni vers où attirer l'attaquant.
-On y gagne la **visibilité** : une sonde venue de l'école est vue, même si le pare-feu la rejette.
+DNS ou une API dont l'hôte a besoin. Les services (443, 8883, honeypot) écoutent certes sur toutes les
+interfaces, mais le **pare-feu Windows ne les autorise que depuis `192.168.137.0/24`** (le réseau de la
+table) : une sonde venue de l'école est **rejetée au pare-feu**. L'IDS, lui, apporte la **visibilité** :
+elle est **vue et journalisée** avant d'être jetée, même si rien ne la laissait passer.
 
 **Capture sans mode promiscuous.** Mettre la carte Wi-Fi en promiscuous pendant qu'elle sert de point
 d'accès faisait planter le pilote Wi-Fi de Windows (carte perdue jusqu'au redémarrage, deux fois).
