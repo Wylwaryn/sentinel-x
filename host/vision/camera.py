@@ -18,7 +18,7 @@ def resolve_index(cam_cfg):
     l'index, qui change selon l'ordre de branchement (la webcam USB peut être 0 ou 1 selon le boot).
 
     Si `name` est demandé mais ABSENT (webcam USB débranchée, ou pas encore prête juste après un
-    démarrage de Windows), on lève RuntimeError : `open_camera_waiting` réessaie alors toutes les 2 s
+    démarrage de Windows), on lève RuntimeError : `acquire_camera` réessaie (et bascule en secours après usb_wait_s)
     au lieu de prendre une AUTRE caméra. La reconnaissance faciale ne doit JAMAIS basculer sur la
     caméra intégrée du portable. Repli sur `index` seulement si `name` est vide, ou si `require_name`
     est explicitement mis à false, ou si pygrabber est indisponible."""
@@ -37,7 +37,7 @@ def resolve_index(cam_cfg):
     except Exception as exc:
         # Erreur TRANSITOIRE d'énumération (fréquente pendant un débranchement USB : le périphérique
         # disparaît en pleine énumération COM). Si on exige l'USB, on NE bascule PAS sur l'intégrée :
-        # on lève pour que open_camera_waiting réessaie, le temps que l'USB revienne.
+        # on lève pour que l'appelant réessaie, le temps que l'USB revienne.
         if require:
             raise RuntimeError(f"énumération caméra impossible ({exc}) — on attend l'USB, pas de bascule")
         print(f"[CAMÉRA] énumération impossible ({exc}), repli sur l'index {cam_cfg['index']}")
@@ -53,8 +53,46 @@ def resolve_index(cam_cfg):
     return cam_cfg["index"]
 
 
-def open_camera(cam_cfg):
-    index = resolve_index(cam_cfg)
+def list_devices():
+    """Noms des caméras vues par Windows (ordre == index OpenCV CAP_DSHOW), ou None si énumération KO."""
+    try:
+        from pygrabber.dshow_graph import FilterGraph
+        return FilterGraph().get_input_devices()
+    except Exception:
+        return None
+
+
+def named_index(cam_cfg):
+    """Index de la caméra NOMMÉE si elle est présente, sinon None (pour une bascule sans exception).
+    None si pygrabber est indisponible ET qu'aucun nom n'est exigé."""
+    name = cam_cfg.get("name")
+    if not name:
+        return cam_cfg["index"]
+    devices = list_devices()
+    if devices is None:
+        return None
+    for i, dev in enumerate(devices):
+        if name.lower() in dev.lower():
+            return i
+    return None
+
+
+def fallback_index(cam_cfg):
+    """Index de la caméra de SECOURS : la première caméra présente qui n'est PAS l'USB nommée
+    (typiquement l'intégrée du portable). Repli ultime sur `fallback_index`/`index` de la config."""
+    name = (cam_cfg.get("name") or "").lower()
+    devices = list_devices()
+    if devices:
+        for i, dev in enumerate(devices):
+            if name and name in dev.lower():
+                continue
+            return i
+    return cam_cfg.get("fallback_index", cam_cfg.get("index", 0))
+
+
+def open_camera(cam_cfg, index=None):
+    if index is None:
+        index = resolve_index(cam_cfg)
     cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
     if not cap.isOpened():
         raise RuntimeError(f"Impossible d'ouvrir la webcam (index {index}, nom « {cam_cfg.get('name') or '-'} »)")

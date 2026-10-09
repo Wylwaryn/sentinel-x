@@ -18,7 +18,7 @@ from ultralytics import YOLO
 
 from alerts import AlertSender
 from behaviour import BehaviourAnalyzer
-from camera import open_camera
+from camera import fallback_index, named_index, open_camera
 from enhance import LowLightEnhancer
 from fusion import FusionEngine
 
@@ -84,16 +84,35 @@ def draw(frame, zones, persons, analyzer, ts, hud, recent_alerts, names=None):
         cv2.putText(frame, txt, (10, h - 12 - 24 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.6, LEVEL_COLORS[alert.level], 2)
 
 
-def open_camera_waiting(cam_cfg):
-    """Ouvre la caméra en réessayant toutes les 2 s si elle est absente (webcam branchée plus tard,
-    ou prise par un autre programme). Ne rend la main qu'une fois la caméra disponible : le service
-    ne plante donc jamais, même démarré sans webcam."""
+def acquire_camera(cam_cfg):
+    """Ouvre la caméra et renvoie (cap, sur_usb). Préfère toujours la webcam USB nommée. Si elle est
+    absente, on l'attend `usb_wait_s` secondes (absorbe les micro-coupures du câble), puis on bascule
+    en SECOURS sur la caméra intégrée pour ne pas rester aveugle — on reprendra l'USB dès son retour
+    (voir la boucle principale). Si aucun nom n'est exigé, comportement classique."""
+    name = cam_cfg.get("name")
+    wait_s = cam_cfg.get("usb_wait_s", 15)
+    start = time.monotonic()
+    announced = False
     while True:
-        try:
-            return open_camera(cam_cfg)
-        except RuntimeError as exc:
-            print(f"[CAMÉRA] {exc} — nouvelle tentative dans 2 s (branchez la webcam)")
-            time.sleep(2)
+        idx = named_index(cam_cfg) if name else cam_cfg["index"]
+        if idx is not None:
+            try:
+                return open_camera(cam_cfg, index=idx), True
+            except RuntimeError as exc:
+                print(f"[CAMÉRA] {exc} — nouvelle tentative dans 2 s")
+        elif name and time.monotonic() - start >= wait_s:
+            fb = fallback_index(cam_cfg)
+            try:
+                cap = open_camera(cam_cfg, index=fb)
+                print(f"[CAMÉRA] USB « {name} » absente depuis {wait_s}s → SECOURS sur la caméra "
+                      f"intégrée (index {fb}). Reprise de l'USB dès son retour.")
+                return cap, False
+            except RuntimeError as exc:
+                print(f"[CAMÉRA] secours impossible ({exc}) — nouvelle tentative dans 2 s")
+        elif not announced:
+            print(f"[CAMÉRA] USB « {name} » absente — on attend (secours intégrée dans {wait_s}s)")
+            announced = True
+        time.sleep(2)
 
 
 def main():
@@ -113,7 +132,8 @@ def main():
     print(f"Inférence sur : {torch.cuda.get_device_name(0) if device == 0 else 'CPU'}")
 
     model = YOLO(model_cfg["weights"])
-    cap = open_camera_waiting(config["camera"])
+    cap, sur_usb = acquire_camera(config["camera"])
+    last_usb_check = time.monotonic()
     gate = MotionGate(config["motion"])
     enhancer = LowLightEnhancer(config.get("enhance", {"enabled": False, "clahe_clip": 2.0}))
     analyzer = BehaviourAnalyzer(config["zones"], config["behaviour"])
@@ -152,12 +172,21 @@ def main():
             ok, frame = cap.read()
             if not ok:
                 # Coupure USB ou caméra prise par un autre programme : on ne s'arrête JAMAIS,
-                # on rouvre la caméra toutes les 2 s jusqu'à ce qu'elle revienne.
+                # on rouvre (USB préférée, secours intégrée après usb_wait_s).
                 print("[CAMÉRA] plus d'image : réouverture")
                 cap.release()
-                cap = open_camera_waiting(config["camera"])
-                print("[CAMÉRA] rouverte")
+                cap, sur_usb = acquire_camera(config["camera"])
+                last_usb_check = time.monotonic()
+                print("[CAMÉRA] rouverte" + ("" if sur_usb else " (caméra de secours)"))
                 continue
+            # Sur la caméra de secours : vérifier le retour de l'USB toutes les 3 s pour la reprendre.
+            if not sur_usb and config["camera"].get("name") and time.monotonic() - last_usb_check > 3:
+                last_usb_check = time.monotonic()
+                if named_index(config["camera"]) is not None:
+                    print("[CAMÉRA] USB de retour → reprise de la webcam USB")
+                    cap.release()
+                    cap, sur_usb = acquire_camera(config["camera"])
+                    continue
             frame = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_AREA)
             frame = enhancer(frame)  # faible lumière : image rehaussée pour l'IA, les visages et la vidéo
             ts = time.monotonic()

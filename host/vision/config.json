@@ -13,7 +13,8 @@
     "gain": null,
     "fourcc": "MJPG",
     "capture_width": 1280,
-    "capture_height": 720
+    "capture_height": 720,
+    "usb_wait_s": 15
   },
   "enhance": {
     "enabled": true,
