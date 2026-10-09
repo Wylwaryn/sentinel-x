@@ -14,10 +14,25 @@ $env:PYTHONIOENCODING = "utf-8"
 
 if (-not (Test-Path $py)) { Write-Host "Python introuvable : $py" -ForegroundColor Red; exit 1 }
 
-# 1) Arrêter les instances existantes
+# 0) Verrou mono-instance : empeche DEUX start.bat lances en meme temps de creer des doublons
+#    (constate le 9 oct. : 2 visions + 2 predictives, qui se disputent la webcam USB).
+$mutex = New-Object System.Threading.Mutex($false, "Global\SentinelX-Start")
+if (-not $mutex.WaitOne(0)) {
+  Write-Host "Un demarrage est deja en cours (start.bat lance deux fois ?). Rien a faire." -ForegroundColor Yellow
+  exit 0
+}
+try {
+
+# 1) Arrêter les instances existantes (et attendre qu'elles soient vraiment parties)
 Get-CimInstance Win32_Process -Filter "name='python.exe'" |
   Where-Object { $_.CommandLine -match 'sentinel_(vision|predictive)' } |
   ForEach-Object { Write-Host ("Arret de l'ancienne instance PID " + $_.ProcessId); Stop-Process -Id $_.ProcessId -Force }
+for ($i = 0; $i -lt 10; $i++) {
+  Start-Sleep -Milliseconds 300
+  $reste = @(Get-CimInstance Win32_Process -Filter "name='python.exe'" |
+             Where-Object { $_.CommandLine -match 'sentinel_(vision|predictive)' })
+  if ($reste.Count -eq 0) { break }
+}
 
 function Start-Svc($name, $dir, $scriptArgs) {
   $wd  = Join-Path $root $dir
@@ -50,3 +65,6 @@ $running = (Get-CimInstance Win32_Process -Filter "name='python.exe'" |
   Where-Object { $_.CommandLine -match 'sentinel_(vision|predictive)' }).Count
 Write-Host ("`n$running service(s) en cours. Journaux : $logs") -ForegroundColor Cyan
 Write-Host "Pour arreter : host\stop.ps1 (ou stop.bat)."
+
+}
+finally { $mutex.ReleaseMutex(); $mutex.Dispose() }
